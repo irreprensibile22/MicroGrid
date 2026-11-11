@@ -142,3 +142,17 @@ Limiti:
 - **Meteo reale al posto delle previsioni.** Il meteo del giorno D+1 è quello effettivamente osservato: per il periodo di studio non esistono previsioni meteo archiviate. L'errore sul fotovoltaico è quindi ottimistico.
 - **Riaddestramento introdotto dopo aver visto il test.** Il modello statico era stato valutato per primo; il riaddestramento periodico è stato aggiunto dopo. Non usa dati futuri e gli iperparametri non sono cambiati, ma è una scelta fatta conoscendo il risultato sul test.
 - **Emissione a mezzanotte.** Un vero mercato del giorno prima richiede la previsione entro mezzogiorno del giorno D, con mezza giornata di misure in meno.
+
+## Ottimizzazione
+
+Per ogni giorno un modello MILP sceglie, ora per ora, carica e scarica della batteria, acquisto e vendita alla rete e taglio del fotovoltaico, minimizzando costo netto più emissioni pesate da `λ`. La formulazione completa è in [docs/formulation.md](docs/formulation.md).
+
+| Parametro | Simbolo | Valore |
+|---|---|---|
+| Potenza massima scambiabile con la rete | `G_max` | 100 kW |
+| Oneri sull'energia acquistata | `τ` | 0,20 €/kWh (assunto) |
+| Peso delle emissioni | `λ` | 0 €/kgCO₂ di default, variato per il fronte di Pareto |
+
+- **Prezzi.** Si acquista al prezzo day-ahead più `τ` e si vende al prezzo day-ahead.
+- **Fine giornata.** La batteria deve chiudere ogni giorno almeno al livello con cui l'ha iniziato.
+- **Variabili binarie.** Impediscono carica e scarica simultanee e acquisto e vendita simultanei. Con `τ` = 0,20 €/kWh il prezzo di acquisto è sempre positivo e non cambiano il valore ottimo; servono quando acquistare è pagato.
