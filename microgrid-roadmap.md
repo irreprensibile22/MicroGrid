@@ -275,7 +275,7 @@ Poi:
 
 - [x] Fase 0 — Problema e parametri definiti
 - [x] Fase 1 — Repository impostato
-- [ ] Fase 2 — Dati scaricabili con uno script
+- [x] Fase 2 — Dati scaricabili con uno script
 - [ ] Fase 3 — Dataset pulito ed esplorato
 - [ ] Fase 4 — Previsione migliore della baseline
 - [ ] Fase 5 — Formulazione scritta

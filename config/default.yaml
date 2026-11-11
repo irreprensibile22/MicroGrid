@@ -7,7 +7,6 @@ site:
   latitude: 47.66
   longitude: 9.18
   timezone: Europe/Berlin
-  bidding_zone: DE_LU
 
 time:
   step_hours: 1        # Δt
@@ -28,3 +27,65 @@ battery:
 paths:
   raw: data/raw
   processed: data/processed
+
+# --- Dati -------------------------------------------------------------------
+
+data:
+  # Periodo di studio (date locali, estremi inclusi). È la finestra in cui
+  # tutte le utenze scelte hanno misure complete.
+  start: "2015-11-01"
+  end: "2017-01-31"
+
+load:
+  source_url: https://data.open-power-system-data.org/household_data/2020-04-15/household_data_60min_singleindex.csv
+  # Utenze di Costanza sommate per formare il carico della microgrid.
+  # Il consumo di ciascuna è: grid_import + pv − grid_export (colonne presenti).
+  households:
+    - import: DE_KN_residential1_grid_import   # fotovoltaico misurato a parte
+    - import: DE_KN_residential2_grid_import   # senza fotovoltaico
+    - import: DE_KN_residential4_grid_import   # fotovoltaico dietro il contatore
+      pv: DE_KN_residential4_pv
+      export: DE_KN_residential4_grid_export
+    - import: DE_KN_residential5_grid_import   # senza fotovoltaico
+  # Il carico aggregato (picco reale ≈ 10 kW) viene riscalato a questo picco
+  # per essere coerente con la taglia dell'impianto. null = nessuna riscalatura.
+  scale_to_peak_kw: 50.0
+
+pvgis:
+  url: https://re.jrc.ec.europa.eu/api/v5_3/seriescalc
+  loss_percent: 14.0    # perdite di sistema
+  tilt_deg: 35.0        # inclinazione dei moduli
+  azimuth_deg: 0.0      # 0 = sud
+
+weather:
+  url: https://archive-api.open-meteo.com/v1/archive
+  variables: [temperature_2m, shortwave_radiation, cloud_cover]
+
+market:
+  url: https://api.energy-charts.info
+  # Nel periodo di studio la Germania era nella zona di mercato DE-AT-LU
+  # (divisa in DE-LU e AT dal 1° ottobre 2018).
+  bidding_zone: DE-AT-LU
+  country: de
+
+# Fattori di emissione sul ciclo di vita [gCO2eq/kWh].
+# Fonte: IPCC AR5 WG3, Annex III, tabella A.III.2 (valori mediani).
+# Il rapporto non distingue lignite e carbone: si usa 820 per entrambi.
+# Olio, rifiuti e "altro" non sono nella tabella: valori assunti.
+emission_factors:
+  Nuclear: 12
+  Hydro Run-of-River: 24
+  Hydro water reservoir: 24
+  Hydro pumped storage: 24
+  Biomass: 230
+  Fossil brown coal / lignite: 820
+  Fossil hard coal: 820
+  Fossil coal-derived gas: 820
+  Fossil oil: 650        # assunto
+  Fossil gas: 490
+  Geothermal: 38
+  Others: 700            # assunto
+  Waste: 700             # assunto
+  Wind offshore: 12
+  Wind onshore: 11
+  Solar: 45
