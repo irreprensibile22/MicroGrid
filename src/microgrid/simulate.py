@@ -21,6 +21,16 @@ Regole di correzione applicate in tempo reale, ora per ora (`apply_plan`):
 - se l'acquisto supererebbe la potenza di rete, si riduce la carica;
 - il surplus si vende; si taglia il fotovoltaico se il prezzo di vendita è
   negativo o se la vendita supererebbe la potenza di rete.
+
+Con la correzione in tempo reale (`correct=True`) si segue lo scambio con la
+rete previsto dal piano, non il programma della batteria: l'errore di
+previsione è assorbito dalla batteria, finché può. Due limiti evitano gli
+scambi svantaggiosi:
+
+- la batteria carica al più il surplus reale, più la carica dalla rete che
+  il piano aveva deciso;
+- la batteria scarica al più il deficit reale, più la scarica verso la rete
+  che il piano aveva deciso.
 """
 
 from __future__ import annotations
@@ -50,27 +60,46 @@ def apply_plan(
     actual: pd.DataFrame,
     config: dict[str, Any],
     soc_initial_kwh: float,
+    schedule: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Esegue il programma della batteria sui valori reali di un giorno.
+    """Esegue il programma della batteria sui valori reali di un periodo.
 
     `charge` e `discharge` sono le potenze programmate [kW]; `actual` contiene
     `load_kw`, `pv_kw`, `price_eur_kwh` e `carbon_kg_kwh` reali, con lo stesso
     indice. Restituisce, per ogni ora, i flussi realmente avvenuti, l'energia
     in batteria a fine ora, il costo [EUR] e le emissioni [kgCO2].
+
+    Se è indicato il piano completo (`schedule`, come restituito da
+    `optimize_day`), si applica la correzione in tempo reale descritta in
+    testa al modulo.
     """
     battery, limits = config["battery"], battery_limits(config)
     step = float(config["time"]["step_hours"])
     grid_max = float(config["grid"]["max_power_kw"])
     eta_charge, eta_discharge = battery["eta_charge"], battery["eta_discharge"]
+    power_max = limits["max_power_kw"]
     buy_price, sell_price = exchange_prices(actual["price_eur_kwh"], config)
 
     soc = float(soc_initial_kwh)
     rows = []
     for hour in range(len(actual)):
         load, pv = float(actual["load_kw"].iloc[hour]), float(actual["pv_kw"].iloc[hour])
+        charge_kw, discharge_kw = float(charge.iloc[hour]), float(discharge.iloc[hour])
+        if schedule is not None:
+            planned = schedule.iloc[hour]
+            planned_surplus = float(planned["pv_kw"] - planned["load_kw"])
+            # Componenti del piano che scambiano con la rete di proposito.
+            from_grid = charge_kw - min(charge_kw, max(planned_surplus, 0.0))
+            to_grid = discharge_kw - min(discharge_kw, max(-planned_surplus, 0.0))
+            # Potenza che la batteria dovrebbe cedere (+) o assorbire (−) per
+            # scambiare con la rete quanto previsto dal piano.
+            planned_exchange = float(planned["grid_import_kw"] - planned["grid_export_kw"])
+            needed = (load - pv) - planned_exchange
+            discharge_kw = min(max(needed, 0.0), max(load - pv, 0.0) + to_grid, power_max)
+            charge_kw = min(max(-needed, 0.0), max(pv - load, 0.0) + from_grid, power_max)
         # La batteria segue il programma, entro ciò che lo stato di carica consente.
-        charge_kw = min(float(charge.iloc[hour]), max(limits["soc_max_kwh"] - soc, 0.0) / (eta_charge * step))
-        discharge_kw = min(float(discharge.iloc[hour]), max(soc - limits["soc_min_kwh"], 0.0) * eta_discharge / step)
+        charge_kw = min(charge_kw, max(limits["soc_max_kwh"] - soc, 0.0) / (eta_charge * step))
+        discharge_kw = min(discharge_kw, max(soc - limits["soc_min_kwh"], 0.0) * eta_discharge / step)
 
         # La rete assorbe la differenza fra previsto e reale.
         net = load - pv + charge_kw - discharge_kw
@@ -104,12 +133,55 @@ def apply_plan(
     return pd.DataFrame(rows, index=actual.index)
 
 
+def daily_totals(actual: pd.DataFrame, real: pd.DataFrame, soc_start_kwh: float, step: float) -> dict[str, Any]:
+    """Totali di un giorno a partire dai valori reali e dai flussi avvenuti."""
+    return {
+        "hours": len(actual),
+        "cost_eur": real["cost_eur"].sum(),
+        "emissions_kg": real["emissions_kg"].sum(),
+        "load_kwh": actual["load_kw"].sum() * step,
+        "pv_kwh": actual["pv_kw"].sum() * step,
+        "import_kwh": real["grid_import_kw"].sum() * step,
+        "export_kwh": real["grid_export_kw"].sum() * step,
+        "curtailed_kwh": real["curtailment_kw"].sum() * step,
+        "battery_discharge_kwh": real["discharge_kw"].sum() * step,
+        "soc_start_kwh": soc_start_kwh,
+        "soc_end_kwh": real["soc_kwh"].iloc[-1],
+    }
+
+
+def simulate_rule(inputs: pd.DataFrame, config: dict[str, Any], use_battery: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Simula le strategie senza previsione né ottimizzazione.
+
+    Con `use_battery=True` è la regola ingenua: la batteria carica quando il
+    fotovoltaico supera il carico e scarica quando non basta, entro i suoi
+    limiti. Con `use_battery=False` la batteria non viene mai usata.
+    Restituisce dettaglio orario e serie giornaliera, come `simulate`.
+    """
+    if inputs[INPUT_COLUMNS].isna().any().any():
+        raise ValueError("I dati della simulazione contengono valori mancanti.")
+    step = float(config["time"]["step_hours"])
+    limits = battery_limits(config)
+    power = limits["max_power_kw"] if use_battery else 0.0
+    surplus = inputs["pv_kw"] - inputs["load_kw"]
+    soc = limits["soc_initial_kwh"]
+    real = apply_plan(surplus.clip(0, power), (-surplus).clip(0, power), inputs, config, soc)
+    days = local_days(inputs.index, config)
+    daily = []
+    for day in days.unique():
+        of_day = (days == day)
+        daily.append({"day": day.date().isoformat(), **daily_totals(inputs[of_day], real[of_day], soc, step)})
+        soc = float(real["soc_kwh"][of_day].iloc[-1])
+    return pd.concat([inputs[INPUT_COLUMNS], real], axis=1), pd.DataFrame(daily).set_index("day")
+
+
 def simulate(
     inputs: pd.DataFrame,
     config: dict[str, Any],
     load_column: str = "load_forecast",
     pv_column: str = "pv_forecast",
     carbon_weight: float | None = None,
+    correct: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Simula giorno per giorno le ore di `inputs`, che devono essere consecutive.
 
@@ -117,6 +189,9 @@ def simulate(
     `carbon_kg_kwh`) e le colonne `load_column` e `pv_column` su cui il MILP
     pianifica. Passando `load_kw` e `pv_kw` anche come colonne di
     pianificazione si ottiene il caso di previsione perfetta.
+
+    Con `correct=True` il programma è eseguito con la correzione in tempo
+    reale descritta in testa al modulo.
 
     Restituisce il dettaglio orario e la serie giornaliera. Nel dettaglio
     le colonne `planned_*` sono il programma, le altre ciò che è avvenuto.
@@ -140,7 +215,9 @@ def simulate(
             carbon_weight=carbon_weight,
         )
         schedule = plan.schedule
-        real = apply_plan(schedule["charge_kw"], schedule["discharge_kw"], actual, config, soc)
+        real = apply_plan(
+            schedule["charge_kw"], schedule["discharge_kw"], actual, config, soc, schedule if correct else None
+        )
         hourly.append(
             pd.concat(
                 [
@@ -162,19 +239,9 @@ def simulate(
         daily.append(
             {
                 "day": day.date().isoformat(),
-                "hours": len(actual),
-                "cost_eur": real["cost_eur"].sum(),
-                "emissions_kg": real["emissions_kg"].sum(),
+                **daily_totals(actual, real, soc, step),
                 "planned_cost_eur": plan.cost_eur,
                 "planned_emissions_kg": plan.emissions_kg,
-                "load_kwh": actual["load_kw"].sum() * step,
-                "pv_kwh": actual["pv_kw"].sum() * step,
-                "import_kwh": real["grid_import_kw"].sum() * step,
-                "export_kwh": real["grid_export_kw"].sum() * step,
-                "curtailed_kwh": real["curtailment_kw"].sum() * step,
-                "battery_discharge_kwh": real["discharge_kw"].sum() * step,
-                "soc_start_kwh": soc,
-                "soc_end_kwh": real["soc_kwh"].iloc[-1],
             }
         )
         # Lo stato reale di fine giornata è quello iniziale del giorno dopo.

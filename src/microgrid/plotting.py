@@ -113,3 +113,15 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
     if title:
         figure.suptitle(title, x=0.125, y=0.93, ha="left", fontsize=12, fontweight="bold")
     return figure
+
+
+# Colore e tratto di ogni strategia, uguali in tutti i grafici dei risultati.
+# I due riferimenti (nessuna batteria e previsione perfetta) sono neutri; le
+# tre strategie realizzabili hanno un colore.
+STRATEGY_STYLES = {
+    "no_battery": {"color": COLORS["muted"], "linestyle": "-"},
+    "rule": {"color": COLORS["pv"], "linestyle": "-"},
+    "milp": {"color": COLORS["load"], "linestyle": "-"},
+    "milp_corrected": {"color": COLORS["alt"], "linestyle": "-"},
+    "perfect": {"color": TEXT_SECONDARY, "linestyle": "--"},
+}

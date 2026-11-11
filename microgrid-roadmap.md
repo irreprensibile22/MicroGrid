@@ -281,7 +281,7 @@ Poi:
 - [x] Fase 5 — Formulazione scritta
 - [x] Fase 6 — Ottimizzatore implementato e testato
 - [x] Fase 7 — Simulazione a orizzonte mobile
-- [ ] Fase 8 — Confronti, Pareto, sensitività
+- [x] Fase 8 — Confronti, Pareto, sensitività
 - [ ] Fase 9 — CI, test, riproducibilità
 - [ ] Fase 10 — README completo
 - [ ] Fase 11 — Estensioni (facoltative)

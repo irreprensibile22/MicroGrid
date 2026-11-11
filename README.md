@@ -190,5 +190,39 @@ Sul test set (125 giorni, 2 ottobre 2017 – 3 febbraio 2018) nessuna di queste 
 | Pianificato (sulle previsioni) | 4 251 € | — |
 | Reale (previsione + MILP) | 5 554 € | 9 527 kgCO₂ |
 
-Il costo reale supera del 31% quello pianificato: è il costo degli errori di previsione. Seguendo il programma alla lettera, la batteria carica dalla rete quando il fotovoltaico previsto non arriva. La serie giornaliera è in [results/simulation_daily.csv](results/simulation_daily.csv); il confronto con le altre strategie è nella fase successiva.
+Il costo reale supera del 31% quello pianificato: è il costo degli errori di previsione. Seguendo il programma alla lettera, la batteria carica dalla rete quando il fotovoltaico previsto non arriva. La serie giornaliera è in [results/simulation_daily.csv](results/simulation_daily.csv).
 
+### Correzione in tempo reale
+
+Seguire il programma alla lettera scarica sulla rete ogni errore di previsione. In alternativa si segue lo **scambio con la rete** previsto dal piano e si lascia che sia la batteria ad assorbire l'errore, con due limiti: carica al più il surplus reale e scarica al più il deficit reale, oltre agli scambi con la rete che il piano aveva deciso di proposito. La regola è stata scelta sul periodo di validazione, fra due alternative.
+
+## Risultati
+
+```
+python -m microgrid.evaluate    # confronto, fronte di Pareto, sensitività: scrive results/
+```
+
+Test set, 125 giorni (2 ottobre 2017 – 3 febbraio 2018), oneri di 0,20 €/kWh sull'acquisto:
+
+| Strategia | Costo | Emissioni | Risparmio di costo | Quota del risparmio teorico |
+|---|---|---|---|---|
+| Nessuna batteria | 6 069 € | 10 496 kgCO₂ | — | — |
+| Regola ingenua | 4 691 € | 7 878 kgCO₂ | 22,7% | 94% |
+| Previsione + MILP | 5 554 € | 9 527 kgCO₂ | 8,5% | 35% |
+| Previsione + MILP + correzione | 4 842 € | 8 208 kgCO₂ | 20,2% | 84% |
+| Previsione perfetta + MILP | 4 602 € | 7 802 kgCO₂ | 24,2% | 100% |
+
+**Con questa tariffa previsione + ottimizzazione non batte la regola semplice.** L'analisi completa è in [notebooks/03_results.ipynb](notebooks/03_results.ipynb).
+
+- **Perché.** Con 0,20 €/kWh di oneri un kWh autoconsumato vale circa sette volte la differenza di prezzo tipica fra le ore di un giorno. Conta quasi solo l'autoconsumo, e per massimizzarlo basta reagire al surplus reale. Fra regola ingenua e previsione perfetta c'è meno del 2% del costo.
+- **Esecuzione del piano.** Far assorbire l'errore di previsione alla batteria invece che alla rete vale 711 €: tre quarti di ciò che darebbe una previsione perfetta (952 €).
+- **Errore di previsione.** Il costo in più dipende dall'errore sul fotovoltaico (correlazione +0,71 con il MAE del giorno), non da quello sul carico (−0,08).
+- **Oneri sull'acquisto.** È il parametro che decide chi vince. Con oneri nulli il MILP porta il costo da 496 € a 7 €, mentre la regola ingenua perde 47 € rispetto a non avere la batteria; fino a 0,10 €/kWh il piano con correzione è davanti o alla pari; da 0,20 €/kWh vince la regola ingenua.
+- **Batteria e fotovoltaico.** Il risparmio cresce con entrambi, con rendimenti decrescenti per la batteria: da 100 a 200 kWh la regola ingenua guadagna 377 €, da 200 a 400 kWh 192 €.
+- **Fronte di Pareto.** Con previsione perfetta, pesare le emissioni fino a 5 €/kgCO₂ le riduce del 2,6% e aumenta il costo dell'1,8%. Le emissioni dipendono da quanta energia si acquista più che da quando.
+
+Avvertenze:
+
+- **La previsione perfetta non è un limite superiore assoluto.** Il MILP pianifica un giorno alla volta e deve chiudere ogni giorno al livello di partenza. Con una batteria da 400 kWh regola ingenua e piano con correzione lo raggiungono o lo superano.
+- **Energia residua.** Regola ingenua e piano con correzione finiscono il periodo con la batteria al minimo, le altre strategie a metà: la differenza vale circa 18 € e non cambia la classifica.
+- **Un solo periodo.** Il confronto è su 125 giorni di autunno e inverno.

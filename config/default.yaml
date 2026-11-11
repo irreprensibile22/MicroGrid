@@ -153,3 +153,15 @@ optimize:
 
 simulate:
   split: test                  # periodo simulato: validation o test
+
+# --- Confronti ---------------------------------------------------------------
+
+evaluate:
+  # Pesi λ [EUR/kgCO2] con cui si ripete la simulazione per il fronte di Pareto.
+  pareto_carbon_weights: [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0]
+  # Analisi di sensitività: si cambia un parametro alla volta, gli altri
+  # restano ai valori di default. La potenza della batteria non cambia.
+  sensitivity:
+    battery_capacity_kwh: [50.0, 100.0, 200.0, 400.0]
+    pv_peak_kw: [50.0, 100.0, 150.0, 200.0]
+    import_surcharge_eur_kwh: [0.0, 0.05, 0.10, 0.20, 0.30]
