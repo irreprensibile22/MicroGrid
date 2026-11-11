@@ -150,7 +150,9 @@ def daily_totals(actual: pd.DataFrame, real: pd.DataFrame, soc_start_kwh: float,
     }
 
 
-def simulate_rule(inputs: pd.DataFrame, config: dict[str, Any], use_battery: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+def simulate_rule(
+    inputs: pd.DataFrame, config: dict[str, Any], use_battery: bool = True
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Simula le strategie senza previsione né ottimizzazione.
 
     Con `use_battery=True` è la regola ingenua: la batteria carica quando il
@@ -169,7 +171,7 @@ def simulate_rule(inputs: pd.DataFrame, config: dict[str, Any], use_battery: boo
     days = local_days(inputs.index, config)
     daily = []
     for day in days.unique():
-        of_day = (days == day)
+        of_day = days == day
         daily.append({"day": day.date().isoformat(), **daily_totals(inputs[of_day], real[of_day], soc, step)})
         soc = float(real["soc_kwh"][of_day].iloc[-1])
     return pd.concat([inputs[INPUT_COLUMNS], real], axis=1), pd.DataFrame(daily).set_index("day")
@@ -273,6 +275,7 @@ def load_simulation(config: dict[str, Any] | None = None) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Simula il periodo configurato e salva i risultati (comando `python -m microgrid.simulate`)."""
     config = load_config()
     split = config["simulate"]["split"]
     hourly, daily = simulate(simulation_inputs(config, split), config)

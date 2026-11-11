@@ -109,8 +109,7 @@ def build_model(
     # (1) Bilancio di potenza.
     model.balance = pyo.Constraint(
         model.T,
-        rule=lambda m, t: pv[t - 1] - m.curt[t] + m.p_dis[t] + m.g_imp[t]
-        == load[t - 1] + m.p_ch[t] + m.g_exp[t],
+        rule=lambda m, t: pv[t - 1] - m.curt[t] + m.p_dis[t] + m.g_imp[t] == load[t - 1] + m.p_ch[t] + m.g_exp[t],
     )
 
     # (2) Dinamica dello stato di carica.
@@ -200,12 +199,13 @@ def optimize_day(
     results = solver.solve(model, raise_exception_on_nonoptimal_result=False)
     if results.solution_status != SolutionStatus.optimal:
         raise OptimizationError(
-            f"Nessuna soluzione ottima: {results.termination_condition.name} "
-            f"(giorno che inizia a {load.index[0]})."
+            f"Nessuna soluzione ottima: {results.termination_condition.name} (giorno che inizia a {load.index[0]})."
         )
     results.solution_loader.load_vars()
 
-    schedule = pd.DataFrame({"load_kw": load.to_numpy(dtype=float), "pv_kw": pv.to_numpy(dtype=float)}, index=load.index)
+    schedule = pd.DataFrame(
+        {"load_kw": load.to_numpy(dtype=float), "pv_kw": pv.to_numpy(dtype=float)}, index=load.index
+    )
     for column, variable in SCHEDULE_VARIABLES.items():
         values = np.array([pyo.value(getattr(model, variable)[t]) for t in model.T])
         schedule[column] = np.where(np.abs(values) < ZERO_TOLERANCE, 0.0, values)
@@ -222,6 +222,7 @@ def optimize_day(
 
 
 def main() -> None:
+    """Risolve il giorno di esempio e ne salva il grafico (comando `python -m microgrid.optimize`)."""
     # Import locali: servono solo per l'esempio, non per l'ottimizzatore.
     from microgrid.dataset import load_dataset, local_days
     from microgrid.forecast import load_forecasts

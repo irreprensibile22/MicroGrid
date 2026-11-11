@@ -1,5 +1,7 @@
 # Microgrid EMS
 
+[![CI](https://github.com/irreprensibile22/MicroGrid/actions/workflows/ci.yml/badge.svg)](https://github.com/irreprensibile22/MicroGrid/actions/workflows/ci.yml)
+
 Gestione energetica di una microgrid con approccio *predict-then-optimize*: un modello di machine learning prevede carico e produzione fotovoltaica del giorno dopo, un modello MILP decide ora per ora come usare batteria e rete per minimizzare costo ed emissioni.
 
 > Progetto in costruzione. Il piano di lavoro è in [microgrid-roadmap.md](microgrid-roadmap.md).
@@ -62,14 +64,29 @@ Il sistema viene valutato contro tre riferimenti:
 
 ## Installazione
 
-Serve Python 3.10 o successivo. Dalla cartella del repository:
+Serve Python 3.12. Dalla cartella del repository:
 
 ```
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -r requirements-lock.txt    # versioni esatte usate per i risultati
+pip install -e . --no-deps
 pytest
 ```
+
+Per usare invece le versioni più recenti delle dipendenze: `pip install -e ".[dev]"`.
+
+## Esecuzione
+
+```
+python scripts/run_all.py
+```
+
+Esegue l'intero pipeline in circa 10 minuti: download dei dati, pulizia, previsione, piano di esempio, simulazione, confronto fra strategie, notebook. I singoli passi sono descritti nelle sezioni seguenti e si possono eseguire uno alla volta.
+
+- **Parametri.** Sono tutti in [config/default.yaml](config/default.yaml).
+- **Riproducibilità.** Il seme casuale è fissato (`seed`) e LightGBM è usato in modalità deterministica. Con le versioni di `requirements-lock.txt` il pipeline rigenera i file di `results/`.
+- **Controlli automatici.** A ogni push GitHub Actions esegue `ruff` (lint e formattazione) e i test, che non richiedono i dati.
 
 ## Dati
 

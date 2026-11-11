@@ -280,6 +280,7 @@ def download_all(config: dict[str, Any] | None = None, force: bool = False) -> l
 
 
 def main() -> None:
+    """Scarica i dati grezzi (comando `python -m microgrid.data`)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--force", action="store_true", help="riscarica anche i file già presenti")
     parser.add_argument("--config", default=None, help="percorso di un file di configurazione")

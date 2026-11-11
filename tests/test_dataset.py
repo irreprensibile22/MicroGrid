@@ -104,9 +104,7 @@ def test_build_load_reconstructs_consumption_behind_the_meter():
 
 def test_build_pv_scales_to_peak_and_removes_night_production():
     index = hours("2016-06-01 00:00", 3)
-    raw = pd.DataFrame(
-        {"pv_kw_per_kwp": [0.02, 0.5, -0.1], "irradiance_plane_w_m2": [0.0, 600.0, 50.0]}, index=index
-    )
+    raw = pd.DataFrame({"pv_kw_per_kwp": [0.02, 0.5, -0.1], "irradiance_plane_w_m2": [0.0, 600.0, 50.0]}, index=index)
     pv = build_pv(raw, {"pv": {"peak_kw": 100.0}}, index)
     assert pv.tolist() == [0.0, 50.0, 0.0]
 
@@ -114,7 +112,11 @@ def test_build_pv_scales_to_peak_and_removes_night_production():
 def test_build_weather_moves_radiation_to_start_of_hour():
     raw_index = hours("2016-06-01 10:00", 3)
     raw = pd.DataFrame(
-        {"temperature_2m": [15.0, 16.0, 17.0], "shortwave_radiation": [100.0, 200.0, 300.0], "cloud_cover": [0, 50, 100]},
+        {
+            "temperature_2m": [15.0, 16.0, 17.0],
+            "shortwave_radiation": [100.0, 200.0, 300.0],
+            "cloud_cover": [0, 50, 100],
+        },
         index=raw_index,
     )
     weather = build_weather(raw, raw_index[:2])

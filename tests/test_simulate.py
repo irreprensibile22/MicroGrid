@@ -40,7 +40,9 @@ def make_inputs(start: str, days: int, seed: int = 0, forecast_error: float = 0.
 def one_day(load, pv, price=0.05, carbon=0.3) -> pd.DataFrame:
     index = pd.date_range("2017-06-01 00:00", periods=24, freq="h", tz="UTC")
     values = {"load_kw": load, "pv_kw": pv, "price_eur_kwh": price, "carbon_kg_kwh": carbon}
-    return pd.DataFrame({name: np.broadcast_to(np.asarray(v, dtype=float), 24) for name, v in values.items()}, index=index)
+    return pd.DataFrame(
+        {name: np.broadcast_to(np.asarray(v, dtype=float), 24) for name, v in values.items()}, index=index
+    )
 
 
 def zeros(frame: pd.DataFrame) -> pd.Series:
@@ -129,7 +131,9 @@ def test_simulation_carries_soc_from_one_day_to_the_next():
     # Lo stato di carica è continuo anche da un'ora all'altra, su tutto il periodo.
     battery = CONFIG["battery"]
     previous = np.append(limits["soc_initial_kwh"], hourly["soc_kwh"].to_numpy()[:-1])
-    expected = previous + battery["eta_charge"] * hourly["charge_kw"] - hourly["discharge_kw"] / battery["eta_discharge"]
+    expected = (
+        previous + battery["eta_charge"] * hourly["charge_kw"] - hourly["discharge_kw"] / battery["eta_discharge"]
+    )
     assert hourly["soc_kwh"].to_numpy() == pytest.approx(expected.to_numpy(), abs=TOLERANCE)
     assert hourly["soc_kwh"].between(limits["soc_min_kwh"] - TOLERANCE, limits["soc_max_kwh"] + TOLERANCE).all()
 

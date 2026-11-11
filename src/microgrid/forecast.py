@@ -105,7 +105,7 @@ def tune(features: pd.DataFrame, target: pd.Series, days: pd.Index, config: dict
     names = list(settings["grid"])
     trials = []
     for values in itertools.product(*(settings["grid"][name] for name in names)):
-        params = dict(zip(names, values))
+        params = dict(zip(names, values, strict=True))
         errors, rounds = [], []
         for train_mask, validation_mask in folds:
             train_set = lgb.Dataset(features[train_mask], target[train_mask])
@@ -126,7 +126,9 @@ def tune(features: pd.DataFrame, target: pd.Series, days: pd.Index, config: dict
 
 def fit(features: pd.DataFrame, target: pd.Series, config: dict[str, Any], tuned: dict[str, Any]) -> lgb.Booster:
     """Addestra un modello con gli iperparametri e il numero di alberi scelti."""
-    return lgb.train(_lgb_params(config, tuned["params"]), lgb.Dataset(features, target), num_boost_round=tuned["rounds"])
+    return lgb.train(
+        _lgb_params(config, tuned["params"]), lgb.Dataset(features, target), num_boost_round=tuned["rounds"]
+    )
 
 
 def predict(model: lgb.Booster, features: pd.DataFrame, upper: float | None = None) -> pd.Series:
@@ -252,6 +254,7 @@ def load_forecasts(config: dict[str, Any] | None = None) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Addestra i modelli e salva previsioni e metriche (comando `python -m microgrid.forecast`)."""
     config = load_config()
     forecasts, table, chosen = run(config)
     results_dir = resolve_path(config["paths"]["results"])

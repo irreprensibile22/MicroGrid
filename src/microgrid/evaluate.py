@@ -178,7 +178,16 @@ def sensitivity(inputs: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
             table.insert(0, "value", value)
             table.insert(0, "parameter", parameter)
             frames.append(table.reset_index())
-    columns = ["parameter", "value", "strategy", "cost_eur", "emissions_kg", "cost_saving_eur", "cost_saving_pct", "saving_captured"]
+    columns = [
+        "parameter",
+        "value",
+        "strategy",
+        "cost_eur",
+        "emissions_kg",
+        "cost_saving_eur",
+        "cost_saving_pct",
+        "saving_captured",
+    ]
     return pd.concat(frames, ignore_index=True)[columns]
 
 
@@ -190,6 +199,7 @@ def evaluation_inputs(config: dict[str, Any]) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Confronta le strategie e salva le tabelle (comando `python -m microgrid.evaluate`)."""
     config = load_config()
     inputs = evaluation_inputs(config)
     results_dir = resolve_path(config["paths"]["results"])

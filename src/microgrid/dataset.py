@@ -264,9 +264,7 @@ def build_dataset(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, d
     scale = 1.0 if target_peak is None else target_peak / real_load.max()
     frame["load_kw"] = frame["load_kw"] * scale
 
-    frame["split"] = assign_split(
-        frame["valid_day"], days, config["split"]["train"], config["split"]["validation"]
-    )
+    frame["split"] = assign_split(frame["valid_day"], days, config["split"]["train"], config["split"]["validation"])
 
     day_table = pd.DataFrame({"valid": frame["valid_day"].to_numpy(), "split": frame["split"].to_numpy()}, index=days)
     day_table = day_table[~day_table.index.duplicated()]
@@ -303,6 +301,7 @@ def load_dataset(config: dict[str, Any] | None = None) -> pd.DataFrame:
 
 
 def main() -> None:
+    """Costruisce e salva il dataset pulito (comando `python -m microgrid.dataset`)."""
     config = load_config()
     frame, summary = build_dataset(config)
     processed_dir = resolve_path(config["paths"]["processed"])

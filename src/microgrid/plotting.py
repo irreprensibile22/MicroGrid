@@ -78,8 +78,20 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
     )
     forecast, battery, grid, soc, price = axes
 
-    forecast.step(np.arange(hours + 1), np.append(schedule["load_kw"], schedule["load_kw"].iloc[-1]), where="post", color=COLORS["load"], label="Carico")
-    forecast.step(np.arange(hours + 1), np.append(schedule["pv_kw"], schedule["pv_kw"].iloc[-1]), where="post", color=COLORS["pv"], label="Fotovoltaico")
+    forecast.step(
+        np.arange(hours + 1),
+        np.append(schedule["load_kw"], schedule["load_kw"].iloc[-1]),
+        where="post",
+        color=COLORS["load"],
+        label="Carico",
+    )
+    forecast.step(
+        np.arange(hours + 1),
+        np.append(schedule["pv_kw"], schedule["pv_kw"].iloc[-1]),
+        where="post",
+        color=COLORS["pv"],
+        label="Fotovoltaico",
+    )
     forecast.set_title("Carico e fotovoltaico previsti [kW]")
     forecast.legend(loc="upper left", ncols=2)
 
@@ -95,14 +107,32 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
         + (f" — fotovoltaico tagliato: {curtailed:.0f} kWh" if curtailed > 0 else "")
     )
 
-    soc.plot(np.arange(hours + 1), np.append(plan.soc_initial_kwh, schedule["soc_kwh"]), color=COLORS["alt"], marker="o", markersize=3)
+    soc.plot(
+        np.arange(hours + 1),
+        np.append(plan.soc_initial_kwh, schedule["soc_kwh"]),
+        color=COLORS["alt"],
+        marker="o",
+        markersize=3,
+    )
     for fraction in (config["battery"]["soc_min_frac"], config["battery"]["soc_max_frac"]):
         soc.axhline(fraction * capacity, color=TEXT_SECONDARY, linewidth=0.8, linestyle="--")
     soc.set_ylim(0, capacity)
     soc.set_title("Energia in batteria [kWh], con i limiti minimo e massimo")
 
-    price.step(np.arange(hours + 1), np.append(schedule["buy_price_eur_kwh"], schedule["buy_price_eur_kwh"].iloc[-1]), where="post", color=COLORS["price"], label="Acquisto")
-    price.step(np.arange(hours + 1), np.append(schedule["sell_price_eur_kwh"], schedule["sell_price_eur_kwh"].iloc[-1]), where="post", color=COLORS["muted"], label="Vendita")
+    price.step(
+        np.arange(hours + 1),
+        np.append(schedule["buy_price_eur_kwh"], schedule["buy_price_eur_kwh"].iloc[-1]),
+        where="post",
+        color=COLORS["price"],
+        label="Acquisto",
+    )
+    price.step(
+        np.arange(hours + 1),
+        np.append(schedule["sell_price_eur_kwh"], schedule["sell_price_eur_kwh"].iloc[-1]),
+        where="post",
+        color=COLORS["muted"],
+        label="Vendita",
+    )
     price.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
     price.set_title("Prezzi [EUR/kWh]")
     price.legend(loc="center left", ncols=2)

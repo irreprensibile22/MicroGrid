@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Gestione energetica di una microgrid: previsione ML + ottimizzazione MILP"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "pandas",
     "numpy",
@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ipykernel", "nbconvert", "nbformat"]
+dev = ["pytest", "ruff", "ipykernel", "nbconvert", "nbformat"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -31,3 +31,12 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+src = ["src"]
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+# Errori, import ordinati, sintassi moderna, errori comuni.
+select = ["E", "F", "W", "I", "UP", "B"]

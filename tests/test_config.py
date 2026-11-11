@@ -18,13 +18,7 @@ def test_battery_parameters_are_consistent():
     assert battery["max_power_kw"] > 0
     assert 0 < battery["eta_charge"] <= 1
     assert 0 < battery["eta_discharge"] <= 1
-    assert (
-        0
-        <= battery["soc_min_frac"]
-        <= battery["soc_initial_frac"]
-        <= battery["soc_max_frac"]
-        <= 1
-    )
+    assert 0 <= battery["soc_min_frac"] <= battery["soc_initial_frac"] <= battery["soc_max_frac"] <= 1
 
 
 def test_time_grid_covers_whole_horizon():
