@@ -276,7 +276,7 @@ Poi:
 - [x] Fase 0 — Problema e parametri definiti
 - [x] Fase 1 — Repository impostato
 - [x] Fase 2 — Dati scaricabili con uno script
-- [ ] Fase 3 — Dataset pulito ed esplorato
+- [x] Fase 3 — Dataset pulito ed esplorato
 - [ ] Fase 4 — Previsione migliore della baseline
 - [ ] Fase 5 — Formulazione scritta
 - [ ] Fase 6 — Ottimizzatore implementato e testato

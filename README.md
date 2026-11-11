@@ -12,7 +12,7 @@ Gestione energetica di una microgrid con approccio *predict-then-optimize*: un m
 
 ### Scenario
 
-Quattro abitazioni di Costanza (Germania), gestite come un'unica microgrid connessa alla rete elettrica, dotata di:
+Due abitazioni di Costanza (Germania), gestite come un'unica microgrid connessa alla rete elettrica, dotata di:
 
 - un impianto fotovoltaico,
 - una batteria di accumulo condivisa,
@@ -23,7 +23,7 @@ Il gestore decide ogni giorno il piano di carica e scarica della batteria per il
 Perché questo scenario:
 
 - **Dati reali a scala di edificio.** Il carico viene dalle misure del dataset *household data* di Open Power System Data, non da un carico nazionale riscalato.
-- **Profilo adatto all'accumulo.** Il carico è distribuito su tutta la giornata, con consumi serali e notturni che il fotovoltaico non copre: c'è surplus da spostare.
+- **Profilo adatto all'accumulo.** Il fotovoltaico supera il carico solo in un terzo delle ore: c'è surplus da spostare verso la sera e la notte.
 - **Coerenza geografica.** Meteo, prezzi day-ahead e intensità di carbonio si riferiscono alla stessa località, alla stessa zona di mercato e allo stesso periodo.
 
 Utenze, periodo e riscalatura del carico sono descritti nella sezione [Dati](#dati).
@@ -62,27 +62,38 @@ Il sistema viene valutato contro tre riferimenti:
 
 ## Dati
 
-Cinque serie orarie sul periodo **1 novembre 2015 – 31 gennaio 2017** (15 mesi, 10 992 ore), tutte riferite a Costanza o alla Germania. Nessuna ha ore mancanti nel periodo.
+Cinque serie orarie sul periodo **1 novembre 2015 – 3 febbraio 2018** (826 giorni, 19 824 ore), tutte riferite a Costanza o alla Germania.
 
 | Serie | Fonte | Contenuto | Licenza |
 |---|---|---|---|
 | Carico | [Open Power System Data, *Household Data*](https://data.open-power-system-data.org/household_data/2020-04-15/) (versione 2020-04-15, progetto CoSSMic) | Letture di contatore di utenze di Costanza | CC BY 4.0 |
 | Fotovoltaico | [PVGIS 5.3](https://re.jrc.ec.europa.eu/pvg_tools/en/) (Commissione Europea, JRC), radiazione SARAH-3 | Produzione simulata per 1 kWp a Costanza, moduli a sud inclinati di 35°, perdite 14% | Riuso libero con citazione della fonte |
 | Meteo | [Open-Meteo](https://open-meteo.com/), archivio storico | Temperatura, irraggiamento, nuvolosità a Costanza | CC BY 4.0 |
-| Prezzo | [Energy-Charts](https://api.energy-charts.info/) (Fraunhofer ISE), dati Bundesnetzagentur / SMARD.de | Prezzo day-ahead della zona DE-AT-LU | CC BY 4.0 |
-| Intensità di carbonio | [Energy-Charts](https://api.energy-charts.info/), produzione elettrica tedesca per fonte ogni 15 minuti | Calcolata dal mix di produzione | Non indicata nella risposta dell'API: da verificare |
+| Prezzo | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), dati Bundesnetzagentur / SMARD.de | Prezzo day-ahead della zona DE-AT-LU | CC BY 4.0 |
+| Intensità di carbonio | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), produzione elettrica tedesca per fonte ogni 15 minuti | Calcolata dal mix di produzione | CC BY 4.0 |
 
-I dati non sono nel repository. Si scaricano con:
+I dati non sono nel repository. Si scaricano e si puliscono con:
 
 ```
-python -m microgrid.data
+python -m microgrid.data       # scarica le serie grezze in data/raw/
+python -m microgrid.dataset    # costruisce data/processed/dataset.parquet
 ```
 
-Scelte e semplificazioni:
+L'esplorazione del dataset è in [notebooks/01_exploration.ipynb](notebooks/01_exploration.ipynb).
 
-- **Utenze.** Il carico è la somma di quattro abitazioni (`residential1`, `2`, `4`, `5`). Il periodo è la finestra in cui tutte e quattro hanno misure complete. Le altre utenze residenziali del dataset sono escluse: `residential3` non copre il periodo, per `residential6` il consumo ricostruito non è attendibile (segue l'andamento del sole).
+### Pulizia
+
+- **Indice unico.** Tutte le serie sono su un indice orario in UTC, riferito all'inizio dell'ora. I giorni sono quelli dell'ora locale di Costanza: i giorni del cambio dell'ora hanno 23 o 25 ore.
+- **Giorni non validi.** Nessuna serie ha ore mancanti, ma nel dataset del carico molte letture di contatore sono state interpolate dal fornitore. Un'interpolazione ripartisce in parti uguali l'energia delle ore coinvolte: il totale è corretto, l'andamento orario no. I buchi fino a 6 ore sono accettati; i giorni che contengono buchi più lunghi sono marcati come non validi (50 su 826, tutti nei dati di addestramento).
+- **Valori anomali.** Un consumo negativo è trattato come valore mancante. La produzione fotovoltaica con irraggiamento nullo è portata a zero.
+- **Divisione.** In ordine temporale e per giorni interi: addestramento fino al 31 maggio 2017 (70%), validazione dal 1° giugno al 1° ottobre 2017 (15%), test dal 2 ottobre 2017 al 3 febbraio 2018 (15%).
+
+### Scelte e semplificazioni
+
+- **Utenze.** Il carico è la somma di due abitazioni (`residential4` e `residential5`), le sole con misure complete e poco interpolate per più di due anni. Con più abitazioni il profilo sarebbe più regolare, ma il periodo utile scenderebbe a 15 mesi e i giorni da escludere salirebbero a oltre il 20%.
 - **Consumo dietro il contatore.** Per `residential4`, che ha il fotovoltaico a valle del contatore, il consumo è ricostruito come prelievo + produzione − immissione.
-- **Riscalatura del carico.** Il carico aggregato reale ha media di circa 2 kW e picco di circa 10 kW. Viene riscalato a un picco di 50 kW per essere coerente con un impianto da 100 kWp. La forma del profilo è reale, la scala no: equivale a studiare le quattro abitazioni con un impianto cinque volte più piccolo.
-- **Fotovoltaico simulato.** La produzione non è misurata ma simulata da PVGIS a partire dalla radiazione satellitare delle stesse ore.
+- **Riscalatura del carico.** Il carico aggregato reale ha media di 1,1 kW e picco di 6,3 kW. Viene moltiplicato per 7,95 per portare il picco a 50 kW, coerente con un impianto da 100 kWp. La forma del profilo è reale, la scala no: equivale a studiare le due abitazioni con un impianto otto volte più piccolo.
+- **Fotovoltaico simulato.** La produzione non è misurata ma simulata da PVGIS a partire dalla radiazione satellitare delle stesse ore. Il valore di ogni ora è quello dell'istante osservato dal satellite, circa 10 minuti dopo l'inizio dell'ora.
+- **Test set invernale.** Il test set copre solo autunno e inverno, la stagione con più carico e meno fotovoltaico. I risultati non rappresentano un anno intero.
 - **Zona di mercato.** Nel periodo la Germania era nella zona DE-AT-LU, divisa in DE-LU e AT dal 1° ottobre 2018.
 - **Intensità di carbonio.** È la media dei fattori di emissione sul ciclo di vita (IPCC AR5, Annex III) pesata sulla produzione nazionale di ogni fonte. Non considera gli scambi con l'estero. Il rapporto IPCC non distingue la lignite dal carbone: si usa lo stesso fattore, quindi le emissioni sono sottostimate. I fattori sono in `config/default.yaml`.

@@ -34,22 +34,32 @@ data:
   # Periodo di studio (date locali, estremi inclusi). È la finestra in cui
   # tutte le utenze scelte hanno misure complete.
   start: "2015-11-01"
-  end: "2017-01-31"
+  end: "2018-02-03"
 
 load:
   source_url: https://data.open-power-system-data.org/household_data/2020-04-15/household_data_60min_singleindex.csv
   # Utenze di Costanza sommate per formare il carico della microgrid.
   # Il consumo di ciascuna è: grid_import + pv − grid_export (colonne presenti).
   households:
-    - import: DE_KN_residential1_grid_import   # fotovoltaico misurato a parte
-    - import: DE_KN_residential2_grid_import   # senza fotovoltaico
     - import: DE_KN_residential4_grid_import   # fotovoltaico dietro il contatore
       pv: DE_KN_residential4_pv
       export: DE_KN_residential4_grid_export
     - import: DE_KN_residential5_grid_import   # senza fotovoltaico
-  # Il carico aggregato (picco reale ≈ 10 kW) viene riscalato a questo picco
-  # per essere coerente con la taglia dell'impianto. null = nessuna riscalatura.
+  # Il carico aggregato reale (picco di pochi kW) viene riscalato a questo
+  # picco per essere coerente con la taglia dell'impianto.
+  # null = nessuna riscalatura.
   scale_to_peak_kw: 50.0
+
+cleaning:
+  # Buchi fino a questa durata vengono interpolati; i giorni che contengono
+  # buchi più lunghi (anche già interpolati dal fornitore dei dati) sono
+  # marcati come non validi.
+  max_gap_hours: 6
+
+split:
+  # Divisione in ordine temporale, per giorni interi. Il resto è il test set.
+  train: 0.70
+  validation: 0.15
 
 pvgis:
   url: https://re.jrc.ec.europa.eu/api/v5_3/seriescalc

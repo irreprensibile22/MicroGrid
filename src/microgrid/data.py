@@ -40,11 +40,12 @@ GENERATION_FILE = "generation_by_type.csv"
 # --- Rete -------------------------------------------------------------------
 
 
-def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 4) -> bytes:
+def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 6) -> bytes:
     """Scarica un URL, riprovando con attesa crescente in caso di errore temporaneo."""
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    wait = 5.0
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(request, timeout=300) as response:
@@ -54,10 +55,14 @@ def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 4) -> 
             if error.code < 500 and error.code != 429:
                 raise
             last_error: Exception = error
+            # Con 429 il servizio indica quanti secondi aspettare.
+            retry_after = error.headers.get("Retry-After", "")
+            wait = float(retry_after) + 1 if retry_after.isdigit() else wait
         except (urllib.error.URLError, TimeoutError) as error:
             last_error = error
         if attempt < retries - 1:
-            time.sleep(5 * 2**attempt)
+            time.sleep(wait)
+            wait = 5 * 2 ** (attempt + 1)
     raise RuntimeError(f"Download fallito dopo {retries} tentativi: {url}") from last_error
 
 
