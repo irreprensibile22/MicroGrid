@@ -139,3 +139,12 @@ forecast:
     num_leaves: [7, 15, 31]
     min_child_samples: [20, 50, 100]
     reg_lambda: [0.0, 10.0]
+
+# --- Ottimizzazione ----------------------------------------------------------
+
+optimize:
+  solver: highs
+  rel_gap: 1.0e-6              # scarto relativo massimo dall'ottimo
+  time_limit_s: 60
+  # Giorno (data locale) disegnato da `python -m microgrid.optimize`.
+  example_day: "2017-09-12"

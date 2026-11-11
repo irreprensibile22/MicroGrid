@@ -279,7 +279,7 @@ Poi:
 - [x] Fase 3 — Dataset pulito ed esplorato
 - [x] Fase 4 — Previsione migliore della baseline (fotovoltaico sì, MAE −39%; carico no sul test: MAE +4%, RMSE −10%)
 - [x] Fase 5 — Formulazione scritta
-- [ ] Fase 6 — Ottimizzatore implementato e testato
+- [x] Fase 6 — Ottimizzatore implementato e testato
 - [ ] Fase 7 — Simulazione a orizzonte mobile
 - [ ] Fase 8 — Confronti, Pareto, sensitività
 - [ ] Fase 9 — CI, test, riproducibilità

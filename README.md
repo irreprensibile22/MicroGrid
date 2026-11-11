@@ -156,3 +156,15 @@ Per ogni giorno un modello MILP sceglie, ora per ora, carica e scarica della bat
 - **Prezzi.** Si acquista al prezzo day-ahead più `τ` e si vende al prezzo day-ahead.
 - **Fine giornata.** La batteria deve chiudere ogni giorno almeno al livello con cui l'ha iniziato.
 - **Variabili binarie.** Impediscono carica e scarica simultanee e acquisto e vendita simultanei. Con `τ` = 0,20 €/kWh il prezzo di acquisto è sempre positivo e non cambiano il valore ottimo; servono quando acquistare è pagato.
+
+```
+python -m microgrid.optimize    # risolve un giorno di esempio e ne disegna il piano
+```
+
+Il modello è scritto con Pyomo e risolto da HiGHS ([src/microgrid/optimize.py](src/microgrid/optimize.py)). I test verificano bilancio di potenza, limiti dello stato di carica, assenza di carica e scarica simultanee, equivalenza con il caso senza batteria quando la capacità è zero, e un giorno con soluzione calcolata a mano.
+
+Piano del 12 settembre 2017, calcolato su carico e fotovoltaico previsti:
+
+![Piano di un giorno](results/optimize_example.png)
+
+La batteria copre il carico notturno, si svuota vendendo nell'ora mattutina di prezzo più alto, si ricarica con il surplus solare e vende di nuovo nel picco serale, chiudendo al livello iniziale.
