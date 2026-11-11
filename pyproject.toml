@@ -15,6 +15,7 @@ dependencies = [
     "pyarrow",
     "scikit-learn",
     "lightgbm",
+    "holidays",
     "pyomo",
     "highspy",
     "matplotlib",

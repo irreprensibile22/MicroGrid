@@ -277,7 +277,7 @@ Poi:
 - [x] Fase 1 — Repository impostato
 - [x] Fase 2 — Dati scaricabili con uno script
 - [x] Fase 3 — Dataset pulito ed esplorato
-- [ ] Fase 4 — Previsione migliore della baseline
+- [x] Fase 4 — Previsione migliore della baseline (fotovoltaico sì; carico alla pari sul test)
 - [ ] Fase 5 — Formulazione scritta
 - [ ] Fase 6 — Ottimizzatore implementato e testato
 - [ ] Fase 7 — Simulazione a orizzonte mobile

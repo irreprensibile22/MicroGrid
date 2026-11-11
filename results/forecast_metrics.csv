@@ -1,0 +1,13 @@
+target,split,model,hours,mae,rmse,nmae
+load,validation,ingenua,2952,3.1598,5.4372,0.6064
+load,validation,LightGBM statico,2952,2.4002,3.8527,0.4606
+load,validation,LightGBM riaddestrato ogni 7 giorni,2952,2.3796,3.8492,0.4567
+load,test,ingenua,3001,3.3429,5.6326,0.2753
+load,test,LightGBM statico,3001,3.8392,5.7187,0.3162
+load,test,LightGBM riaddestrato ogni 7 giorni,3001,3.4602,5.0538,0.2849
+pv,validation,ingenua,2952,7.5029,15.8233,0.4398
+pv,validation,LightGBM statico,2952,4.5968,9.2349,0.2694
+pv,validation,LightGBM riaddestrato ogni 7 giorni,2952,4.5529,9.1420,0.2669
+pv,test,ingenua,3001,5.7878,14.0927,0.8043
+pv,test,LightGBM statico,3001,3.5673,8.2451,0.4957
+pv,test,LightGBM riaddestrato ogni 7 giorni,3001,3.5280,8.1610,0.4902

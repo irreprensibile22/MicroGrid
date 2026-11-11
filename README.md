@@ -97,3 +97,36 @@ L'esplorazione del dataset è in [notebooks/01_exploration.ipynb](notebooks/01_e
 - **Test set invernale.** Il test set copre solo autunno e inverno, la stagione con più carico e meno fotovoltaico. I risultati non rappresentano un anno intero.
 - **Zona di mercato.** Nel periodo la Germania era nella zona DE-AT-LU, divisa in DE-LU e AT dal 1° ottobre 2018.
 - **Intensità di carbonio.** È la media dei fattori di emissione sul ciclo di vita (IPCC AR5, Annex III) pesata sulla produzione nazionale di ogni fonte. Non considera gli scambi con l'estero. Il rapporto IPCC non distingue la lignite dal carbone: si usa lo stesso fattore, quindi le emissioni sono sottostimate. I fattori sono in `config/default.yaml`.
+
+## Previsione
+
+Alla mezzanotte fra il giorno D e il giorno D+1 si prevedono carico e fotovoltaico di ogni ora di D+1, con un modello LightGBM per ciascuna grandezza.
+
+```
+python -m microgrid.forecast    # addestra, prevede validazione e test, scrive results/
+```
+
+- **Feature.** Calendario (ora, giorno della settimana, festività del Baden-Württemberg, stagione, con codifica seno/coseno), meteo del giorno D+1, valori di 24, 48 e 168 ore prima, media del giorno precedente e dei 7 giorni precedenti.
+- **Nessuna informazione futura.** Le feature usano solo misure fino alla fine del giorno D; i giorni non validi non vengono usati. Un test verifica che modificare i dati del giorno D+1 non cambi le sue feature.
+- **Iperparametri.** Scelti con cross-validation a 4 finestre espandibili sui soli dati di addestramento.
+- **Riaddestramento.** Durante validazione e test il modello è riaddestrato ogni 7 giorni con tutte le misure disponibili fino a quel momento.
+- **Confronto.** Previsione ingenua: stessa ora di 7 giorni prima per il carico, stessa ora del giorno prima per il fotovoltaico.
+
+Risultati sul test set (2 ottobre 2017 – 3 febbraio 2018, 3001 ore), in kW:
+
+| Grandezza | Previsione | MAE | RMSE | MAE normalizzato |
+|---|---|---|---|---|
+| Carico | ingenua | 3,34 | 5,63 | 0,275 |
+| Carico | LightGBM statico | 3,84 | 5,72 | 0,316 |
+| Carico | LightGBM riaddestrato ogni 7 giorni | 3,46 | 5,05 | 0,285 |
+| Fotovoltaico | ingenua | 5,79 | 14,09 | 0,804 |
+| Fotovoltaico | LightGBM statico | 3,57 | 8,25 | 0,496 |
+| Fotovoltaico | LightGBM riaddestrato ogni 7 giorni | 3,53 | 8,16 | 0,490 |
+
+Sul fotovoltaico il modello riduce il MAE del 39%. Sul carico, nel test set, **non batte la previsione ingenua** sull'errore medio (+4%), pur commettendo meno errori grandi (RMSE −10%); in validazione la batteva del 25%. La causa è un cambio di abitudini in una delle due abitazioni nell'inverno 2017–18, che rende il carico molto regolare da una settimana all'altra. Le metriche complete sono in [results/forecast_metrics.csv](results/forecast_metrics.csv), l'analisi in [notebooks/02_forecasting.ipynb](notebooks/02_forecasting.ipynb).
+
+Limiti:
+
+- **Meteo reale al posto delle previsioni.** Il meteo del giorno D+1 è quello effettivamente osservato: per il periodo di studio non esistono previsioni meteo archiviate. L'errore sul fotovoltaico è quindi ottimistico.
+- **Riaddestramento introdotto dopo aver visto il test.** Il modello statico era stato valutato per primo; il riaddestramento periodico è stato aggiunto dopo. Non usa dati futuri e gli iperparametri non sono cambiati, ma è una scelta fatta conoscendo il risultato sul test.
+- **Emissione a mezzanotte.** Un vero mercato del giorno prima richiede la previsione entro mezzogiorno del giorno D, con mezza giornata di misure in meno.

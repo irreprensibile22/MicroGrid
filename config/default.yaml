@@ -7,6 +7,8 @@ site:
   latitude: 47.66
   longitude: 9.18
   timezone: Europe/Berlin
+  holidays_country: DE     # festività nazionali...
+  holidays_subdivision: BW # ...e del Baden-Württemberg
 
 time:
   step_hours: 1        # Δt
@@ -27,6 +29,8 @@ battery:
 paths:
   raw: data/raw
   processed: data/processed
+  models: models
+  results: results
 
 # --- Dati -------------------------------------------------------------------
 
@@ -99,3 +103,30 @@ emission_factors:
   Wind offshore: 12
   Wind onshore: 11
   Solar: 45
+
+# --- Previsione --------------------------------------------------------------
+
+forecast:
+  # La previsione del giorno D+1 è emessa alla mezzanotte locale fra D e D+1:
+  # usa solo misure fino alla fine del giorno D.
+  lags_hours: [24, 48, 168]
+  # Numero minimo di giorni validi per calcolare la media dei 7 giorni precedenti.
+  min_days_weekly_mean: 4
+  cv_folds: 4                  # finestre espandibili sui dati di addestramento
+  # Durante validazione e test il modello viene riaddestrato ogni N giorni con
+  # tutte le misure disponibili fino a quel momento.
+  refit_every_days: 7
+  max_boosting_rounds: 3000
+  early_stopping_rounds: 100
+  # Parametri fissi di LightGBM.
+  base_params:
+    objective: regression
+    learning_rate: 0.03
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+  # Griglia degli iperparametri: si provano tutte le combinazioni.
+  grid:
+    num_leaves: [7, 15, 31]
+    min_child_samples: [20, 50, 100]
+    reg_lambda: [0.0, 10.0]

@@ -10,8 +10,9 @@ venv/
 .ruff_cache/
 .ipynb_checkpoints/
 
-# Dati: si riscaricano con uno script
+# Dati e modelli: si rigenerano con gli script
 data/
+models/
 
 # Sistema / editor
 .DS_Store
