@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Dati: si riscaricano con uno script
+data/
+
+# Sistema / editor
+.DS_Store
+.vscode/
+.idea/
+.claude/
