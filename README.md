@@ -12,13 +12,21 @@ Gestione energetica di una microgrid con approccio *predict-then-optimize*: un m
 
 ### Scenario
 
-Un piccolo campus (o un edificio del terziario) connesso alla rete elettrica, dotato di:
+Un gruppo di utenze residenziali e piccole attività a Costanza (Germania), gestite come un'unica microgrid connessa alla rete elettrica, dotata di:
 
 - un impianto fotovoltaico,
-- una batteria di accumulo,
+- una batteria di accumulo condivisa,
 - un punto di connessione alla rete, da cui può acquistare e a cui può vendere energia.
 
 Il gestore decide ogni giorno il piano di carica e scarica della batteria per il giorno successivo. Il carico e la produzione fotovoltaica non sono controllabili: si possono solo prevedere.
+
+Perché questo scenario:
+
+- **Dati reali a scala di edificio.** Il carico viene dalle misure del dataset *household data* di Open Power System Data, non da un carico nazionale riscalato.
+- **Profilo adatto all'accumulo.** Il carico residenziale ha il picco di sera, il fotovoltaico a mezzogiorno: c'è surplus da spostare.
+- **Coerenza geografica.** Meteo, prezzi day-ahead e intensità di carbonio si riferiscono alla stessa località e alla stessa zona di mercato (DE-LU).
+
+Copertura temporale, buchi e licenza del dataset di carico vengono verificati nella fase di raccolta dati; periodo e utenze selezionate saranno riportati nella sezione "Dati".
 
 ### Parametri dell'impianto
 

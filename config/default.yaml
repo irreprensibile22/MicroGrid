@@ -1,0 +1,30 @@
+# Parametri di default del progetto. Nessun numero va scritto nel codice.
+
+seed: 42
+
+site:
+  name: Costanza (DE)
+  latitude: 47.66
+  longitude: 9.18
+  timezone: Europe/Berlin
+  bidding_zone: DE_LU
+
+time:
+  step_hours: 1        # Δt
+  horizon_hours: 24    # pianificazione sul giorno D+1
+
+pv:
+  peak_kw: 100.0
+
+battery:
+  capacity_kwh: 200.0      # E_max
+  max_power_kw: 50.0       # P_max
+  eta_charge: 0.95         # η_c
+  eta_discharge: 0.95      # η_d
+  soc_min_frac: 0.10       # SOC_min, frazione di E_max
+  soc_max_frac: 0.90       # SOC_max, frazione di E_max
+  soc_initial_frac: 0.50   # SOC_0, frazione di E_max
+
+paths:
+  raw: data/raw
+  processed: data/processed
