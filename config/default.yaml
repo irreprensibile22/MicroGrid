@@ -148,3 +148,8 @@ optimize:
   time_limit_s: 60
   # Giorno (data locale) disegnato da `python -m microgrid.optimize`.
   example_day: "2017-09-12"
+
+# --- Simulazione -------------------------------------------------------------
+
+simulate:
+  split: test                  # periodo simulato: validation o test

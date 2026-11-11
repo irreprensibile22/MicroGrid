@@ -168,3 +168,27 @@ Piano del 12 settembre 2017, calcolato su carico e fotovoltaico previsti:
 ![Piano di un giorno](results/optimize_example.png)
 
 La batteria copre il carico notturno, si svuota vendendo nell'ora mattutina di prezzo più alto, si ricarica con il surplus solare e vende di nuovo nel picco serale, chiudendo al livello iniziale.
+
+## Simulazione
+
+Per ogni giorno del test set il MILP pianifica sulle previsioni, poi il piano è eseguito sui dati reali; l'energia rimasta in batteria è lo stato iniziale del giorno dopo ([src/microgrid/simulate.py](src/microgrid/simulate.py)).
+
+```
+python -m microgrid.simulate    # scrive results/simulation_daily.csv
+```
+
+Esecuzione del piano, ora per ora:
+
+- **La batteria segue il programma.** La differenza fra previsto e reale è assorbita dalla rete: si acquista di più o si vende di meno.
+- **Limiti fisici.** Carica e scarica sono ridotte se porterebbero lo stato di carica fuori dai limiti; la carica è ridotta se l'acquisto supererebbe `G_max`.
+- **Surplus.** Si vende; il fotovoltaico si taglia se il prezzo di vendita è negativo o se la vendita supererebbe `G_max`.
+
+Sul test set (125 giorni, 2 ottobre 2017 – 3 febbraio 2018) nessuna di queste correzioni sulla batteria è mai scattata: lo stato di carica reale coincide con quello pianificato.
+
+| | Costo | Emissioni |
+|---|---|---|
+| Pianificato (sulle previsioni) | 4 251 € | — |
+| Reale (previsione + MILP) | 5 554 € | 9 527 kgCO₂ |
+
+Il costo reale supera del 31% quello pianificato: è il costo degli errori di previsione. Seguendo il programma alla lettera, la batteria carica dalla rete quando il fotovoltaico previsto non arriva. La serie giornaliera è in [results/simulation_daily.csv](results/simulation_daily.csv); il confronto con le altre strategie è nella fase successiva.
+
