@@ -60,6 +60,17 @@ Il sistema viene valutato contro tre riferimenti:
 2. **Regola ingenua** — carica quando c'è surplus solare, scarica quando c'è deficit.
 3. **Previsione perfetta + MILP** — limite superiore teorico, ottimizzando sui dati reali.
 
+## Installazione
+
+Serve Python 3.10 o successivo. Dalla cartella del repository:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+```
+
 ## Dati
 
 Cinque serie orarie sul periodo **1 novembre 2015 – 3 febbraio 2018** (826 giorni, 19 824 ore), tutte riferite a Costanza o alla Germania.
@@ -84,7 +95,7 @@ L'esplorazione del dataset è in [notebooks/01_exploration.ipynb](notebooks/01_e
 ### Pulizia
 
 - **Indice unico.** Tutte le serie sono su un indice orario in UTC, riferito all'inizio dell'ora. I giorni sono quelli dell'ora locale di Costanza: i giorni del cambio dell'ora hanno 23 o 25 ore.
-- **Giorni non validi.** Nessuna serie ha ore mancanti, ma nel dataset del carico molte letture di contatore sono state interpolate dal fornitore. Un'interpolazione ripartisce in parti uguali l'energia delle ore coinvolte: il totale è corretto, l'andamento orario no. I buchi fino a 6 ore sono accettati; i giorni che contengono buchi più lunghi sono marcati come non validi (50 su 826, tutti nei dati di addestramento).
+- **Giorni non validi.** Nessuna serie ha ore mancanti (per il fotovoltaico vedi però *Ore senza dati satellitari* più sotto), ma nel dataset del carico molte letture di contatore sono state interpolate dal fornitore. Un'interpolazione ripartisce in parti uguali l'energia delle ore coinvolte: il totale è corretto, l'andamento orario no. I buchi fino a 6 ore sono accettati; i giorni che contengono buchi più lunghi sono marcati come non validi (50 su 826, tutti nei dati di addestramento).
 - **Valori anomali.** Un consumo negativo è trattato come valore mancante. La produzione fotovoltaica con irraggiamento nullo è portata a zero.
 - **Divisione.** In ordine temporale e per giorni interi: addestramento fino al 31 maggio 2017 (70%), validazione dal 1° giugno al 1° ottobre 2017 (15%), test dal 2 ottobre 2017 al 3 febbraio 2018 (15%).
 
@@ -94,6 +105,7 @@ L'esplorazione del dataset è in [notebooks/01_exploration.ipynb](notebooks/01_e
 - **Consumo dietro il contatore.** Per `residential4`, che ha il fotovoltaico a valle del contatore, il consumo è ricostruito come prelievo + produzione − immissione.
 - **Riscalatura del carico.** Il carico aggregato reale ha media di 1,1 kW e picco di 6,3 kW. Viene moltiplicato per 7,95 per portare il picco a 50 kW, coerente con un impianto da 100 kWp. La forma del profilo è reale, la scala no: equivale a studiare le due abitazioni con un impianto otto volte più piccolo.
 - **Fotovoltaico simulato.** La produzione non è misurata ma simulata da PVGIS a partire dalla radiazione satellitare delle stesse ore. Il valore di ogni ora è quello dell'istante osservato dal satellite, circa 10 minuti dopo l'inizio dell'ora.
+- **Ore senza dati satellitari.** In 69 ore su 19 824 la produzione simulata è zero mentre Open-Meteo indica un irraggiamento superiore a 50 W/m²; in 57 di queste PVGIS riporta irraggiamento nullo, per esempio per tutto il 16 ottobre 2016. Sono con ogni probabilità ore in cui manca il dato del satellite. Non vengono corrette: la produzione di quelle ore è sottostimata. Solo 2 cadono nel test set.
 - **Test set invernale.** Il test set copre solo autunno e inverno, la stagione con più carico e meno fotovoltaico. I risultati non rappresentano un anno intero.
 - **Zona di mercato.** Nel periodo la Germania era nella zona DE-AT-LU, divisa in DE-LU e AT dal 1° ottobre 2018.
 - **Intensità di carbonio.** È la media dei fattori di emissione sul ciclo di vita (IPCC AR5, Annex III) pesata sulla produzione nazionale di ogni fonte. Non considera gli scambi con l'estero. Il rapporto IPCC non distingue la lignite dal carbone: si usa lo stesso fattore, quindi le emissioni sono sottostimate. I fattori sono in `config/default.yaml`.
