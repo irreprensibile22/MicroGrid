@@ -1,13 +1,13 @@
-"""Download delle serie orarie grezze (carico, fotovoltaico, meteo, prezzi, CO2).
+"""Download of the raw hourly series (load, PV, weather, prices, generation mix).
 
-Uso:
+Usage:
 
-    python -m microgrid.data            # scarica ciò che manca in data/raw/
-    python -m microgrid.data --force    # riscarica tutto
+    python -m microgrid.data            # download whatever is missing in data/raw/
+    python -m microgrid.data --force    # download everything again
 
-Ogni funzione `download_*` salva un file in `data/raw/` e ne restituisce il
-percorso. Tutti gli istanti sono in UTC e indicano l'inizio dell'intervallo.
-La pulizia e l'unione delle serie avvengono in un passo successivo.
+Each `download_*` function saves one file in `data/raw/` and returns its path.
+All timestamps are UTC and mark the start of the interval. Cleaning and
+merging happen later, in `microgrid.dataset`.
 """
 
 from __future__ import annotations
@@ -26,8 +26,7 @@ import pandas as pd
 from microgrid.config import load_config, resolve_path
 
 USER_AGENT = "microgrid-ems"
-# Margine attorno al periodo di studio, per coprire la conversione fra ora
-# locale e UTC e le feature ritardate dei primi giorni.
+# One extra day on each side: local time vs UTC, plus the lagged features of the first days.
 MARGIN = pd.Timedelta(days=1)
 
 LOAD_FILE = "opsd_household_60min.csv"
@@ -37,11 +36,11 @@ PRICE_FILE = "day_ahead_price.csv"
 GENERATION_FILE = "generation_by_type.csv"
 
 
-# --- Rete -------------------------------------------------------------------
+# --- Network ----------------------------------------------------------------
 
 
 def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 6) -> bytes:
-    """Scarica un URL, riprovando con attesa crescente in caso di errore temporaneo."""
+    """Download a URL, retrying with a growing delay on temporary errors."""
     if params:
         url = f"{url}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -51,11 +50,11 @@ def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 6) -> 
             with urllib.request.urlopen(request, timeout=300) as response:
                 return response.read()
         except urllib.error.HTTPError as error:
-            # 4xx diversi da 429 sono errori della richiesta: riprovare non serve.
+            # A 4xx other than 429 means the request itself is wrong: retrying is pointless.
             if error.code < 500 and error.code != 429:
                 raise
             last_error: Exception = error
-            # Con 429 il servizio indica quanti secondi aspettare.
+            # On 429 the service tells us how long to wait.
             retry_after = error.headers.get("Retry-After", "")
             wait = float(retry_after) + 1 if retry_after.isdigit() else wait
         except (urllib.error.URLError, TimeoutError) as error:
@@ -63,7 +62,7 @@ def _fetch(url: str, params: dict[str, Any] | None = None, retries: int = 6) -> 
         if attempt < retries - 1:
             time.sleep(wait)
             wait = 5 * 2 ** (attempt + 1)
-    raise RuntimeError(f"Download fallito dopo {retries} tentativi: {url}") from last_error
+    raise RuntimeError(f"Download failed after {retries} attempts: {url}") from last_error
 
 
 def _fetch_json(url: str, params: dict[str, Any] | None = None) -> Any:
@@ -71,21 +70,21 @@ def _fetch_json(url: str, params: dict[str, Any] | None = None) -> Any:
 
 
 def _period(config: dict[str, Any]) -> tuple[pd.Timestamp, pd.Timestamp]:
-    """Estremi (date, con margine) dell'intervallo da scaricare."""
+    """First and last date to download (study period plus margin)."""
     start = pd.Timestamp(config["data"]["start"]) - MARGIN
     end = pd.Timestamp(config["data"]["end"]) + MARGIN
     return start, end
 
 
-# --- Conversione delle risposte (funzioni pure, testabili senza rete) --------
+# --- Response parsing (pure functions, testable offline) ---------------------
 
 
 def parse_pvgis(payload: dict[str, Any]) -> pd.DataFrame:
-    """Converte la risposta oraria di PVGIS in potenza per kWp installato.
+    """Convert the PVGIS hourly response into power per installed kWp.
 
-    PVGIS indica gli istanti come `YYYYMMDD:HHMM` in UTC, con i minuti del
-    passaggio del satellite (es. `:10`): il valore viene attribuito all'ora
-    che contiene quell'istante. La potenza `P` è in W.
+    PVGIS timestamps look like `YYYYMMDD:HHMM` in UTC, where the minutes are
+    those of the satellite pass (e.g. `:10`). The value is assigned to the
+    hour containing that instant. Power `P` is in W.
     """
     hourly = pd.DataFrame(payload["outputs"]["hourly"])
     index = pd.to_datetime(hourly["time"], format="%Y%m%d:%H%M", utc=True).dt.floor("h")
@@ -101,7 +100,7 @@ def parse_pvgis(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def parse_openmeteo(payload: dict[str, Any]) -> pd.DataFrame:
-    """Converte la risposta oraria di Open-Meteo (richiesta in UTC) in tabella."""
+    """Convert the Open-Meteo hourly response (requested in UTC) into a table."""
     hourly = pd.DataFrame(payload["hourly"])
     index = pd.to_datetime(hourly.pop("time"), utc=True)
     hourly.index = pd.DatetimeIndex(index, name="utc_timestamp")
@@ -109,9 +108,9 @@ def parse_openmeteo(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def parse_price(payload: dict[str, Any]) -> pd.DataFrame:
-    """Converte la risposta `/price` di Energy-Charts in prezzi [EUR/MWh]."""
+    """Convert the Energy-Charts `/price` response into prices [EUR/MWh]."""
     if payload.get("unit") != "EUR / MWh":
-        raise ValueError(f"Unità di prezzo inattesa: {payload.get('unit')!r}")
+        raise ValueError(f"Unexpected price unit: {payload.get('unit')!r}")
     index = pd.to_datetime(payload["unix_seconds"], unit="s", utc=True)
     return pd.DataFrame(
         {"price_eur_mwh": payload["price"]},
@@ -120,23 +119,23 @@ def parse_price(payload: dict[str, Any]) -> pd.DataFrame:
 
 
 def parse_generation(payload: dict[str, Any]) -> pd.DataFrame:
-    """Converte la risposta `/public_power` di Energy-Charts in potenza [MW] per fonte."""
+    """Convert the Energy-Charts `/public_power` response into power [MW] per source."""
     index = pd.to_datetime(payload["unix_seconds"], unit="s", utc=True)
     columns = {series["name"]: series["data"] for series in payload["production_types"]}
     return pd.DataFrame(columns, index=pd.DatetimeIndex(index, name="utc_timestamp"))
 
 
 def carbon_intensity(generation: pd.DataFrame, factors: dict[str, float]) -> pd.Series:
-    """Intensità di carbonio della produzione [gCO2eq/kWh].
+    """Carbon intensity of generation [gCO2eq/kWh].
 
-    È la media dei fattori di emissione pesata sulla potenza prodotta da
-    ciascuna fonte. Si considerano solo le fonti presenti in `factors`;
-    la produzione negativa (es. consumo dei pompaggi) è trattata come zero.
-    Non tiene conto degli scambi con l'estero.
+    Mean of the emission factors, weighted by the power produced by each
+    source. Only the sources listed in `factors` count. Negative generation
+    (e.g. pumped storage consuming) is treated as zero. Cross-border flows
+    are ignored.
     """
     missing = sorted(set(factors) - set(generation.columns))
     if missing:
-        raise KeyError(f"Fonti senza dati di produzione: {missing}")
+        raise KeyError(f"Sources without generation data: {missing}")
     power = generation[list(factors)].clip(lower=0)
     weights = pd.Series(factors, dtype=float)
     total = power.sum(axis=1, min_count=1)
@@ -144,14 +143,14 @@ def carbon_intensity(generation: pd.DataFrame, factors: dict[str, float]) -> pd.
     return intensity.rename("carbon_intensity_g_kwh")
 
 
-# --- Download ---------------------------------------------------------------
+# --- Downloads ---------------------------------------------------------------
 
 
 def download_load(config: dict[str, Any], raw_dir: Path) -> Path:
-    """Scarica le misure orarie delle utenze di Costanza (Open Power System Data).
+    """Download the hourly household measurements for Konstanz (Open Power System Data).
 
-    Il file è salvato così com'è: contiene letture cumulative di contatore
-    [kWh] per ogni utenza e apparecchio.
+    The file is saved as is: cumulative meter readings [kWh] for every
+    household and appliance.
     """
     path = raw_dir / LOAD_FILE
     path.write_bytes(_fetch(config["load"]["source_url"]))
@@ -159,10 +158,9 @@ def download_load(config: dict[str, Any], raw_dir: Path) -> Path:
 
 
 def download_pv(config: dict[str, Any], raw_dir: Path) -> Path:
-    """Scarica la produzione fotovoltaica simulata da PVGIS, per 1 kWp installato.
+    """Download the PV output simulated by PVGIS, per installed kWp.
 
-    Salvare la serie per kWp permette di cambiare la taglia dell'impianto
-    senza riscaricare.
+    Storing it per kWp lets us change the plant size without downloading again.
     """
     start, end = _period(config)
     site, pvgis = config["site"], config["pvgis"]
@@ -187,7 +185,7 @@ def download_pv(config: dict[str, Any], raw_dir: Path) -> Path:
 
 
 def download_weather(config: dict[str, Any], raw_dir: Path) -> Path:
-    """Scarica il meteo storico orario da Open-Meteo (rianalisi)."""
+    """Download historical hourly weather from Open-Meteo (reanalysis)."""
     start, end = _period(config)
     site, weather = config["site"], config["weather"]
     payload = _fetch_json(
@@ -207,7 +205,7 @@ def download_weather(config: dict[str, Any], raw_dir: Path) -> Path:
 
 
 def download_prices(config: dict[str, Any], raw_dir: Path) -> Path:
-    """Scarica i prezzi day-ahead della zona di mercato (Energy-Charts / SMARD)."""
+    """Download day-ahead prices for the bidding zone (Energy-Charts / SMARD)."""
     start, end = _period(config)
     market = config["market"]
     payload = _fetch_json(
@@ -224,15 +222,14 @@ def download_prices(config: dict[str, Any], raw_dir: Path) -> Path:
 
 
 def download_generation(config: dict[str, Any], raw_dir: Path) -> Path:
-    """Scarica la produzione elettrica nazionale per fonte (Energy-Charts).
+    """Download national electricity generation by source (Energy-Charts).
 
-    Serve a calcolare l'intensità di carbonio della rete con
-    `carbon_intensity`. La richiesta è divisa per mese per non
-    sovraccaricare il servizio.
+    Needed to compute the grid carbon intensity with `carbon_intensity`.
     """
     start, end = _period(config)
     market = config["market"]
     chunks = []
+    # One request per month, with a pause, to go easy on the service.
     for month_start in pd.date_range(start.replace(day=1), end, freq="MS"):
         chunk_start = max(start, month_start)
         chunk_end = min(end, month_start + pd.offsets.MonthEnd(0))
@@ -263,7 +260,7 @@ DOWNLOADS = {
 
 
 def download_all(config: dict[str, Any] | None = None, force: bool = False) -> list[Path]:
-    """Scarica tutte le serie in `data/raw/`; salta i file già presenti se non `force`."""
+    """Download every series into `data/raw/`; skip files already there unless `force`."""
     config = config or load_config()
     raw_dir = resolve_path(config["paths"]["raw"])
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -271,19 +268,19 @@ def download_all(config: dict[str, Any] | None = None, force: bool = False) -> l
     for filename, download in DOWNLOADS.items():
         path = raw_dir / filename
         if path.exists() and not force:
-            print(f"già presente  {path.name}")
+            print(f"already there  {path.name}")
         else:
-            print(f"scarico       {path.name} ...", flush=True)
+            print(f"downloading    {path.name} ...", flush=True)
             path = download(config, raw_dir)
         paths.append(path)
     return paths
 
 
 def main() -> None:
-    """Scarica i dati grezzi (comando `python -m microgrid.data`)."""
+    """Download the raw data (`python -m microgrid.data`)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--force", action="store_true", help="riscarica anche i file già presenti")
-    parser.add_argument("--config", default=None, help="percorso di un file di configurazione")
+    parser.add_argument("--force", action="store_true", help="download again even if the file exists")
+    parser.add_argument("--config", default=None, help="path to a configuration file")
     args = parser.parse_args()
     download_all(load_config(args.config), force=args.force)
 

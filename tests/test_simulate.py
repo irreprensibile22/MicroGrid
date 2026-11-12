@@ -1,4 +1,4 @@
-"""Test della simulazione a orizzonte mobile su dati sintetici."""
+"""Tests of the rolling-horizon simulation on synthetic data."""
 
 import copy
 
@@ -16,10 +16,10 @@ TOLERANCE = 1e-6
 
 
 def make_inputs(start: str, days: int, seed: int = 0, forecast_error: float = 0.0) -> pd.DataFrame:
-    """Giorni locali interi con valori reali e previsioni (uguali ai reali se l'errore è nullo)."""
+    """Whole local days with actual values and forecasts (identical when the error is zero)."""
     timezone = CONFIG["site"]["timezone"]
     first = pd.Timestamp(start, tz=timezone)
-    # La fine è una mezzanotte locale: con il cambio dell'ora non dista un multiplo di 24 ore.
+    # The end is a local midnight: across a clock change it is not a multiple of 24 hours away.
     last = (pd.Timestamp(start) + pd.Timedelta(days=days)).tz_localize(timezone)
     index = pd.date_range(first.tz_convert("UTC"), last.tz_convert("UTC"), freq="h", inclusive="left")
     rng = np.random.default_rng(seed)
@@ -60,7 +60,7 @@ def test_executing_a_plan_on_the_planned_values_reproduces_it():
 
 def test_forecast_error_is_absorbed_by_the_grid():
     actual = one_day(load=15.0, pv=0.0)
-    # Piano fatto per un carico di 10 kW, senza usare la batteria: i 5 kW in più si acquistano.
+    # Plan made for a 10 kW load, battery idle: the extra 5 kW are bought from the grid.
     real = apply_plan(zeros(actual), zeros(actual), actual, CONFIG, 100.0)
     assert real["grid_import_kw"].to_numpy() == pytest.approx(15.0)
     assert real["soc_kwh"].to_numpy() == pytest.approx(100.0)
@@ -74,7 +74,7 @@ def test_battery_program_is_cut_at_the_soc_limits():
     limits, battery = battery_limits(CONFIG), CONFIG["battery"]
     power = pd.Series(battery["max_power_kw"], index=actual.index)
     charged = apply_plan(power, zeros(actual), actual, CONFIG, limits["soc_max_kwh"] - 9.5)
-    # Restano 9,5 kWh di spazio: con rendimento 0,95 entrano 10 kW nella prima ora, poi nulla.
+    # 9.5 kWh of room left: at 0.95 efficiency that is 10 kW in the first hour, then nothing.
     assert charged["charge_kw"].iloc[0] == pytest.approx(9.5 / battery["eta_charge"])
     assert charged["charge_kw"].iloc[1:].sum() == pytest.approx(0, abs=TOLERANCE)
     assert charged["soc_kwh"].max() <= limits["soc_max_kwh"] + TOLERANCE
@@ -119,7 +119,7 @@ def test_surplus_is_sold_or_curtailed_depending_on_price_and_grid_limit():
 
 
 def test_simulation_carries_soc_from_one_day_to_the_next():
-    # Fine ottobre 2017: il 29 ha 25 ore.
+    # End of October 2017: the 29th has 25 hours.
     inputs = make_inputs("2017-10-27", 5, seed=1, forecast_error=5.0)
     hourly, daily = simulate(inputs, CONFIG)
     limits = battery_limits(CONFIG)
@@ -128,7 +128,7 @@ def test_simulation_carries_soc_from_one_day_to_the_next():
     assert daily["soc_start_kwh"].iloc[0] == limits["soc_initial_kwh"]
     assert daily["soc_start_kwh"].iloc[1:].to_numpy() == pytest.approx(daily["soc_end_kwh"].iloc[:-1].to_numpy())
 
-    # Lo stato di carica è continuo anche da un'ora all'altra, su tutto il periodo.
+    # The state of charge is continuous from hour to hour over the whole period, day boundaries included.
     battery = CONFIG["battery"]
     previous = np.append(limits["soc_initial_kwh"], hourly["soc_kwh"].to_numpy()[:-1])
     expected = (
@@ -137,7 +137,7 @@ def test_simulation_carries_soc_from_one_day_to_the_next():
     assert hourly["soc_kwh"].to_numpy() == pytest.approx(expected.to_numpy(), abs=TOLERANCE)
     assert hourly["soc_kwh"].between(limits["soc_min_kwh"] - TOLERANCE, limits["soc_max_kwh"] + TOLERANCE).all()
 
-    # Bilancio di potenza sui flussi reali e coerenza fra serie oraria e giornaliera.
+    # Power balance on the actual flows, and hourly and daily series agree.
     supply = hourly["pv_kw"] - hourly["curtailment_kw"] + hourly["discharge_kw"] + hourly["grid_import_kw"]
     demand = hourly["load_kw"] + hourly["charge_kw"] + hourly["grid_export_kw"]
     assert (supply - demand).abs().max() < TOLERANCE
@@ -166,12 +166,12 @@ def test_naive_rule_charges_on_surplus_and_discharges_on_deficit():
     actual = one_day(load=10.0, pv=pv)
     limits = battery_limits(CONFIG)
     hourly, daily = simulate_rule(actual, CONFIG)
-    # Mattina: 20 kW di surplus vanno in batteria finché c'è spazio, poi alla rete.
+    # Morning: the 20 kW surplus goes into the battery while there is room, then to the grid.
     assert hourly["charge_kw"].iloc[0] == pytest.approx(20.0)
     assert hourly["grid_import_kw"].iloc[:12].sum() == pytest.approx(0)
     assert hourly["soc_kwh"].max() == pytest.approx(limits["soc_max_kwh"])
     assert hourly["grid_export_kw"].iloc[11] == pytest.approx(20.0)
-    # Sera: la batteria copre il carico finché non è al minimo, poi si acquista.
+    # Evening: the battery covers the load until it hits its minimum, then we buy.
     assert hourly["discharge_kw"].iloc[12] == pytest.approx(10.0)
     assert hourly["grid_import_kw"].iloc[12] == pytest.approx(0)
     assert hourly["soc_kwh"].min() >= limits["soc_min_kwh"] - TOLERANCE
@@ -188,7 +188,7 @@ def test_rule_without_battery_only_exchanges_with_the_grid():
 
 
 def planned_day(load, pv, charge=0.0, discharge=0.0) -> pd.DataFrame:
-    """Piano costante su 24 ore, con lo scambio di rete che chiude il bilancio."""
+    """Constant 24-hour plan, with the grid exchange closing the balance."""
     plan = one_day(load=load, pv=pv)[["load_kw", "pv_kw"]]
     plan["charge_kw"], plan["discharge_kw"] = charge, discharge
     net = plan["load_kw"] - plan["pv_kw"] + plan["charge_kw"] - plan["discharge_kw"]
@@ -197,19 +197,19 @@ def planned_day(load, pv, charge=0.0, discharge=0.0) -> pd.DataFrame:
 
 
 def test_correction_lets_the_battery_absorb_the_forecast_error():
-    # Piano: carico previsto 10 kW, coperto dalla batteria, nessuno scambio con la rete.
+    # Plan: forecast load 10 kW, covered by the battery, no grid exchange.
     plan = planned_day(load=10.0, pv=0.0, discharge=10.0)
     actual = one_day(load=14.0, pv=0.0)
     literal = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 180.0)
     corrected = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 180.0, plan)
-    # Alla lettera i 4 kW in più si acquistano; con la correzione li copre la batteria.
+    # To the letter, the extra 4 kW are bought; with the correction the battery covers them.
     assert literal["grid_import_kw"].iloc[0] == pytest.approx(4.0)
     assert corrected["discharge_kw"].iloc[0] == pytest.approx(14.0)
     assert corrected["grid_import_kw"].iloc[0] == pytest.approx(0)
 
 
 def test_correction_never_sells_energy_stored_for_self_consumption():
-    # Il carico reale è più basso del previsto: la batteria scarica solo quanto serve.
+    # Actual load is lower than forecast: the battery discharges only what is needed.
     plan = planned_day(load=10.0, pv=0.0, discharge=10.0)
     actual = one_day(load=4.0, pv=0.0)
     literal = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 180.0)
@@ -220,20 +220,20 @@ def test_correction_never_sells_energy_stored_for_self_consumption():
 
 
 def test_correction_never_buys_energy_the_plan_expected_from_the_sun():
-    # Piano: 20 kW di surplus previsto in batteria. Il sole reale è meno del carico.
+    # Plan: 20 kW of forecast surplus into the battery. The actual sun is less than the load.
     plan = planned_day(load=10.0, pv=30.0, charge=20.0)
     actual = one_day(load=10.0, pv=5.0)
     literal = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 100.0)
     corrected = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 100.0, plan)
     assert literal["grid_import_kw"].iloc[0] == pytest.approx(25.0)
     assert corrected["charge_kw"].iloc[0] == pytest.approx(0)
-    # Il deficit reale di 5 kW è coperto dalla batteria, come vuole il piano (scambio nullo).
+    # The actual 5 kW deficit is covered by the battery, as the plan wants (zero grid exchange).
     assert corrected["discharge_kw"].iloc[0] == pytest.approx(5.0)
     assert corrected["grid_import_kw"].iloc[0] == pytest.approx(0)
 
 
 def test_correction_keeps_planned_exchanges_with_the_grid():
-    # Piano: caricare 30 kW dalla rete di notte (nessun sole) e acquistare anche il carico.
+    # Plan: charge 30 kW from the grid at night (no sun) and buy the load as well.
     plan = planned_day(load=10.0, pv=0.0, charge=30.0)
     actual = one_day(load=10.0, pv=0.0)
     corrected = apply_plan(plan["charge_kw"], plan["discharge_kw"], actual, CONFIG, 100.0, plan)
@@ -242,7 +242,7 @@ def test_correction_keeps_planned_exchanges_with_the_grid():
 
 
 def test_correction_changes_nothing_when_the_forecast_is_exact():
-    # Prezzi positivi: il piano non taglia fotovoltaico.
+    # Positive prices: the plan never curtails PV.
     inputs = make_inputs("2017-06-01", 3, seed=4)
     inputs["price_eur_kwh"] = inputs["price_eur_kwh"].abs() + 0.01
     _, literal = simulate(inputs, CONFIG, load_column="load_kw", pv_column="pv_kw")

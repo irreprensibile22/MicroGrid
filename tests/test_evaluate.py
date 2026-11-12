@@ -1,4 +1,4 @@
-"""Test dei confronti fra strategie su pochi giorni sintetici."""
+"""Tests of the strategy comparison on a few synthetic days."""
 
 import numpy as np
 import pandas as pd
@@ -41,7 +41,7 @@ def test_every_strategy_runs_and_respects_the_power_balance():
         assert (supply - demand).abs().max() < 1e-6, name
         assert len(daily) == 3, name
     with pytest.raises(ValueError):
-        run_strategy("sconosciuta", inputs, CONFIG)
+        run_strategy("unknown", inputs, CONFIG)
 
 
 def test_comparison_table_is_consistent():
@@ -51,7 +51,7 @@ def test_comparison_table_is_consistent():
     assert table.loc["no_battery", "cost_saving_eur"] == 0
     assert table.loc["no_battery", "battery_cycles"] == 0
     assert table.loc["perfect", "saving_captured"] == pytest.approx(1.0)
-    # Con previsione perfetta il MILP non costa mai più che con la previsione vera.
+    # With a perfect forecast the MILP never costs more than with the real one.
     assert table.loc["perfect", "cost_eur"] <= table.loc["milp", "cost_eur"] + 1e-6
     assert daily_costs.sum().to_numpy() == pytest.approx(table["cost_eur"].to_numpy())
 

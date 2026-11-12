@@ -1,4 +1,4 @@
-"""Test dell'ottimizzatore su giorni sintetici, senza file di dati."""
+"""Tests of the optimiser on synthetic days, no data files needed."""
 
 import copy
 
@@ -22,7 +22,7 @@ def series(values, periods: int = 24) -> pd.Series:
 
 
 def with_settings(**sections) -> dict:
-    """Copia della configurazione con alcune chiavi sostituite, sezione per sezione."""
+    """Copy of the configuration with some keys replaced, section by section."""
     config = copy.deepcopy(CONFIG)
     for section, values in sections.items():
         config[section].update(values)
@@ -30,7 +30,7 @@ def with_settings(**sections) -> dict:
 
 
 def random_day(seed: int, periods: int = 24) -> dict[str, pd.Series]:
-    """Giorno casuale con surplus e deficit, e prezzi anche negativi."""
+    """Random day with both surplus and deficit, and prices that can go negative."""
     rng = np.random.default_rng(seed)
     return {
         "load": series(rng.uniform(2, 40, periods), periods),
@@ -41,7 +41,7 @@ def random_day(seed: int, periods: int = 24) -> dict[str, pd.Series]:
 
 
 def test_charges_when_cheap_and_discharges_when_expensive():
-    # Nessun fotovoltaico, carico costante, prezzo basso di notte e alto di sera.
+    # No PV, constant load, cheap at night and expensive in the evening.
     price = np.full(24, 0.05)
     price[:6] = 0.02
     price[18:22] = 0.10
@@ -51,11 +51,11 @@ def test_charges_when_cheap_and_discharges_when_expensive():
     assert schedule["charge_kw"].iloc[:6].sum() > 0
     assert schedule["charge_kw"].iloc[6:].sum() == pytest.approx(0, abs=TOLERANCE)
     assert schedule["discharge_kw"].iloc[:6].sum() == pytest.approx(0, abs=TOLERANCE)
-    # Nelle ore di punta la batteria copre tutto il carico.
+    # In the peak hours the battery covers the whole load.
     assert schedule["grid_import_kw"].iloc[18:22].to_numpy() == pytest.approx(0, abs=TOLERANCE)
 
-    # Soluzione attesa, calcolata a mano. La batteria parte da metà: di notte si
-    # riempie fino al massimo, poi cede la stessa energia e torna al livello iniziale.
+    # Expected solution, worked out by hand. The battery starts half full: at night it
+    # fills up to the maximum, then gives the same energy back and returns to where it started.
     battery, limits = CONFIG["battery"], battery_limits(CONFIG)
     surcharge = CONFIG["grid"]["import_surcharge_eur_kwh"]
     stored = limits["soc_max_kwh"] - limits["soc_initial_kwh"]
@@ -77,20 +77,20 @@ def test_charges_when_cheap_and_discharges_when_expensive():
 @pytest.mark.parametrize("surcharge", [0.20, 0.0])
 @pytest.mark.parametrize("periods", [23, 24, 25])
 def test_plan_respects_all_constraints(seed, surcharge, periods):
-    # Con oneri nulli e prezzi negativi acquistare è pagato: è il caso in cui
-    # le variabili binarie sono indispensabili.
+    # With no surcharge and negative prices we get paid to import: this is the case
+    # where the binary variables are essential.
     config = with_settings(grid={"import_surcharge_eur_kwh": surcharge})
     day = random_day(seed, periods)
     plan = optimize_day(**day, config=config)
     s, battery, limits = plan.schedule, config["battery"], battery_limits(config)
     assert len(s) == periods
 
-    # Bilancio di potenza in ogni ora.
+    # Power balance in every hour.
     supply = s["pv_kw"] - s["curtailment_kw"] + s["discharge_kw"] + s["grid_import_kw"]
     demand = s["load_kw"] + s["charge_kw"] + s["grid_export_kw"]
     assert (supply - demand).abs().max() < TOLERANCE
 
-    # Dinamica e limiti dello stato di carica.
+    # State-of-charge dynamics and limits.
     previous = np.append(plan.soc_initial_kwh, s["soc_kwh"].to_numpy()[:-1])
     expected_soc = previous + battery["eta_charge"] * s["charge_kw"] - s["discharge_kw"] / battery["eta_discharge"]
     assert (s["soc_kwh"] - expected_soc).abs().max() < TOLERANCE
@@ -98,7 +98,7 @@ def test_plan_respects_all_constraints(seed, surcharge, periods):
     assert s["soc_kwh"].max() <= limits["soc_max_kwh"] + TOLERANCE
     assert s["soc_kwh"].iloc[-1] >= plan.soc_initial_kwh - TOLERANCE
 
-    # Limiti di potenza, mai due operazioni opposte nella stessa ora.
+    # Power limits, and never two opposite operations in the same hour.
     assert s[["charge_kw", "discharge_kw"]].max().max() <= battery["max_power_kw"] + TOLERANCE
     assert s[["grid_import_kw", "grid_export_kw"]].max().max() <= config["grid"]["max_power_kw"] + TOLERANCE
     assert s[["charge_kw", "discharge_kw"]].min(axis=1).max() < TOLERANCE
@@ -106,7 +106,7 @@ def test_plan_respects_all_constraints(seed, surcharge, periods):
     assert (s["curtailment_kw"] <= s["pv_kw"] + TOLERANCE).all()
     assert (s[["charge_kw", "discharge_kw", "grid_import_kw", "grid_export_kw", "curtailment_kw"]] >= 0).all().all()
 
-    # Il costo dichiarato è quello degli scambi con la rete.
+    # The reported cost matches the grid exchanges.
     cost = (s["buy_price_eur_kwh"] * s["grid_import_kw"] - s["sell_price_eur_kwh"] * s["grid_export_kw"]).sum()
     assert plan.cost_eur == pytest.approx(cost, abs=TOLERANCE)
 
@@ -115,7 +115,7 @@ def test_zero_capacity_battery_matches_no_battery():
     config = with_settings(battery={"capacity_kwh": 0.0})
     rng = np.random.default_rng(1)
     load, pv = series(rng.uniform(2, 40, 24)), series(rng.uniform(0, 80, 24))
-    # Prezzi positivi: il surplus si vende sempre, non si taglia.
+    # Positive prices: surplus is always sold, never curtailed.
     plan = optimize_day(load, pv, series(rng.uniform(0.01, 0.10, 24)), series(0.3), config)
     s = plan.schedule
     net = (load - pv).to_numpy()
@@ -132,7 +132,7 @@ def test_battery_never_does_worse_than_no_battery():
 
 
 def test_surplus_is_curtailed_when_selling_costs_money():
-    # Batteria piena, surplus di 20 kW e prezzo di vendita negativo: conviene tagliare.
+    # Battery full, 20 kW surplus and a negative sell price: curtailing is the better option.
     limits = battery_limits(CONFIG)
     plan = optimize_day(
         series(10.0), series(30.0), series(-0.05), series(0.3), CONFIG, soc_initial_kwh=limits["soc_max_kwh"]
@@ -140,12 +140,12 @@ def test_surplus_is_curtailed_when_selling_costs_money():
     assert plan.schedule["grid_export_kw"].sum() == pytest.approx(0, abs=TOLERANCE)
     assert plan.schedule["grid_import_kw"].sum() == pytest.approx(0, abs=TOLERANCE)
     assert plan.cost_eur == pytest.approx(0, abs=TOLERANCE)
-    # Quanto si taglia in ogni ora non è univoco: la batteria può muoversi a costo nullo.
+    # How much is curtailed in each hour is not unique: the battery can move at zero cost.
     assert plan.schedule["curtailment_kw"].sum() > 0
 
 
 def test_carbon_weight_moves_purchases_to_clean_hours():
-    # Prezzo costante; la rete è pulita nella prima metà del giorno, sporca nella seconda.
+    # Constant price; the grid is clean in the first half of the day and dirty in the second.
     carbon = np.where(np.arange(24) < 12, 0.1, 0.6)
     day = {"load": series(10.0), "pv": series(0.0), "price": series(0.05), "carbon": series(carbon)}
     cost_only = optimize_day(**day, config=CONFIG, carbon_weight=0.0)
@@ -164,7 +164,7 @@ def test_initial_soc_is_passed_from_outside():
 
 
 def test_infeasible_problem_raises_optimization_error():
-    # Senza batteria né fotovoltaico, un carico oltre la potenza di rete non si può coprire.
+    # With no battery and no PV, a load above the grid limit cannot be met.
     config = with_settings(battery={"capacity_kwh": 0.0})
     load = series(config["grid"]["max_power_kw"] + 10.0)
     with pytest.raises(OptimizationError):

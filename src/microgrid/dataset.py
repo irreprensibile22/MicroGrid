@@ -1,24 +1,24 @@
-"""Pulizia delle serie grezze e costruzione del dataset orario unico.
+"""Cleaning of the raw series and construction of the single hourly dataset.
 
-Uso:
+Usage:
 
     python -m microgrid.dataset
 
-Legge i file di `data/raw/` e scrive `data/processed/dataset.parquet`, con
-una riga per ogni ora del periodo di studio. L'indice è in UTC e indica
-l'inizio dell'ora; per l'ora locale usare `local_index`.
+Reads the files in `data/raw/` and writes `data/processed/dataset.parquet`,
+one row per hour of the study period. The index is UTC and marks the start of
+the hour; use `local_index` for local time.
 
-Colonne:
+Columns:
 
-- `load_kw`            carico della microgrid (riscalato) [kW]
-- `pv_kw`              produzione fotovoltaica per la taglia configurata [kW]
-- `temperature_c`      temperatura dell'aria all'inizio dell'ora [°C]
-- `radiation_w_m2`     irraggiamento globale orizzontale medio nell'ora [W/m²]
-- `cloud_cover_pct`    copertura nuvolosa all'inizio dell'ora [%]
-- `price_eur_kwh`      prezzo day-ahead [EUR/kWh]
-- `carbon_kg_kwh`      intensità di carbonio della rete [kgCO2eq/kWh]
-- `valid_day`          False se il giorno locale contiene dati non attendibili
-- `split`              `train`, `validation` o `test`
+- `load_kw`            microgrid load (rescaled) [kW]
+- `pv_kw`              PV output for the configured plant size [kW]
+- `temperature_c`      air temperature at the start of the hour [°C]
+- `radiation_w_m2`     mean global horizontal irradiance over the hour [W/m²]
+- `cloud_cover_pct`    cloud cover at the start of the hour [%]
+- `price_eur_kwh`      day-ahead price [EUR/kWh]
+- `carbon_kg_kwh`      grid carbon intensity [kgCO2eq/kWh]
+- `valid_day`          False if the local day contains unreliable data
+- `split`              `train`, `validation` or `test`
 """
 
 from __future__ import annotations
@@ -47,14 +47,14 @@ VALUE_COLUMNS = [
 ]
 
 
-# --- Indice temporale -------------------------------------------------------
+# --- Time index --------------------------------------------------------------
 
 
 def study_index(config: dict[str, Any]) -> pd.DatetimeIndex:
-    """Indice orario in UTC che copre i giorni locali del periodo di studio.
+    """Hourly UTC index covering the local days of the study period.
 
-    I giorni sono definiti nel fuso orario del sito: quelli del cambio
-    dell'ora hanno quindi 23 o 25 ore.
+    Days are defined in the site's time zone, so the days of the clock change
+    have 23 or 25 hours.
     """
     timezone = config["site"]["timezone"]
     start = pd.Timestamp(config["data"]["start"], tz=timezone)
@@ -64,43 +64,43 @@ def study_index(config: dict[str, Any]) -> pd.DatetimeIndex:
 
 
 def local_index(index: pd.DatetimeIndex, config: dict[str, Any]) -> pd.DatetimeIndex:
-    """Converte un indice UTC nel fuso orario del sito."""
+    """Convert a UTC index to the site's time zone."""
     return index.tz_convert(config["site"]["timezone"])
 
 
 def local_days(index: pd.DatetimeIndex, config: dict[str, Any]) -> pd.Index:
-    """Giorno locale (mezzanotte, senza fuso) a cui appartiene ogni ora."""
+    """Local day (midnight, time zone dropped) each hour belongs to."""
     return pd.Index(local_index(index, config).tz_localize(None).normalize(), name="local_day")
 
 
-# --- Operazioni elementari (funzioni pure) -----------------------------------
+# --- Building blocks (pure functions) ----------------------------------------
 
 
 def run_lengths(mask: pd.Series) -> pd.Series:
-    """Per ogni elemento True, lunghezza della sequenza di True consecutivi a cui appartiene."""
+    """For each True element, the length of the run of consecutive Trues it belongs to."""
     mask = mask.astype(bool)
     group = (~mask).cumsum()
     return mask.groupby(group).transform("sum").where(mask, 0).astype(int)
 
 
 def long_runs(mask: pd.Series, max_length: int) -> pd.Series:
-    """True dove `mask` è True per più di `max_length` elementi consecutivi."""
+    """True where `mask` is True for more than `max_length` consecutive elements."""
     return run_lengths(mask) > max_length
 
 
 def fill_short_gaps(series: pd.Series, max_gap: int) -> pd.Series:
-    """Interpola linearmente i buchi lunghi al più `max_gap`; lascia NaN gli altri."""
+    """Linearly interpolate gaps up to `max_gap` long; leave longer ones as NaN."""
     missing = series.isna()
     filled = series.interpolate(method="linear", limit_area="inside")
     return filled.where(~missing | (run_lengths(missing) <= max_gap))
 
 
 def meter_to_power(readings: pd.Series) -> pd.Series:
-    """Converte letture cumulative orarie di contatore [kWh] in potenza media [kW].
+    """Convert hourly cumulative meter readings [kWh] into mean power [kW].
 
-    La differenza fra la lettura dell'istante `t` e quella di `t − 1 h` è
-    l'energia dell'ora che finisce in `t`: viene attribuita all'inizio di
-    quell'ora, cioè a `t − 1 h`.
+    The difference between the reading at `t` and the one at `t − 1 h` is the
+    energy of the hour ending at `t`. It is assigned to the start of that
+    hour, i.e. to `t − 1 h`.
     """
     power = readings.diff()
     power.index = power.index - HOUR
@@ -108,20 +108,20 @@ def meter_to_power(readings: pd.Series) -> pd.Series:
 
 
 def provider_interpolated(flags: pd.Series, column: str) -> pd.Series:
-    """True dove il fornitore dichiara di avere interpolato la colonna `column`.
+    """True where the data provider says it interpolated `column`.
 
-    `flags` è la colonna `interpolated` di Open Power System Data: elenca,
-    separati da `|`, i nomi delle colonne interpolate in quell'istante.
+    `flags` is the `interpolated` column of Open Power System Data: a
+    `|`-separated list of the columns interpolated at that instant.
     """
+    # Match whole names only: `x_grid_import` must not match `x_grid_import_extra`.
     pattern = rf"(?:^|\|)\s*{re.escape(column)}\s*(?:\||$)"
     return flags.fillna("").str.contains(pattern, regex=True)
 
 
 def assign_split(valid_day: pd.Series, days: pd.Index, train: float, validation: float) -> pd.Series:
-    """Divide i giorni in ordine temporale in train, validation e test.
+    """Split the days chronologically into train, validation and test.
 
-    Le frazioni si applicano ai giorni interi, così nessun giorno è diviso
-    fra due insiemi.
+    The fractions apply to whole days, so no day is shared between two sets.
     """
     unique_days = pd.Index(days.unique()).sort_values()
     n_train = int(len(unique_days) * train)
@@ -132,20 +132,21 @@ def assign_split(valid_day: pd.Series, days: pd.Index, train: float, validation:
     return pd.Series(labels.reindex(days).to_numpy(), index=valid_day.index, name="split")
 
 
-# --- Costruzione delle singole serie ----------------------------------------
+# --- Individual series -------------------------------------------------------
 
 
 def build_load(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeIndex) -> pd.DataFrame:
-    """Carico aggregato delle utenze scelte, non riscalato.
+    """Aggregate load of the chosen households, not rescaled.
 
-    Restituisce `load_kw` e `load_gap`: quest'ultima è True nelle ore che
-    fanno parte di un buco più lungo di `cleaning.max_gap_hours`, mancante o
-    già interpolato dal fornitore, in almeno una delle colonne usate.
+    Returns `load_kw` and `load_gap`. The latter is True for hours that are
+    part of a gap longer than `cleaning.max_gap_hours` (missing, or already
+    interpolated by the provider) in at least one of the columns used.
     """
     max_gap = config["cleaning"]["max_gap_hours"]
     total = pd.Series(0.0, index=index)
     gap = pd.Series(False, index=index)
     for household in config["load"]["households"]:
+        # Consumption behind the meter: grid import + own PV − grid export.
         consumption = pd.Series(0.0, index=index)
         for role, column in household.items():
             power = meter_to_power(raw[column]).reindex(index)
@@ -154,7 +155,7 @@ def build_load(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeInde
             interpolated = provider_interpolated(raw["interpolated"], column)
             gap |= smoothed_hours(interpolated, max_gap).reindex(index, fill_value=False)
             gap |= long_runs(power.isna(), max_gap)
-        # Un consumo negativo è fisicamente impossibile: è un errore di misura.
+        # Negative consumption is physically impossible: treat it as a metering error.
         consumption = consumption.where(consumption >= 0)
         total = total + consumption
     load = fill_short_gaps(total, max_gap)
@@ -163,15 +164,15 @@ def build_load(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeInde
 
 
 def smoothed_hours(interpolated: pd.Series, max_gap: int) -> pd.Series:
-    """Ore la cui energia è stata spalmata su un buco più lungo di `max_gap` ore.
+    """Hours whose energy was spread over a gap longer than `max_gap` hours.
 
-    `interpolated` segnala le letture di contatore interpolate. Una sequenza
-    di `n` letture interpolate consecutive ripartisce in parti uguali
-    l'energia di `n + 1` ore: il totale è corretto, l'andamento no. Qui si
-    segnalano le ore dei buchi con `n + 1 > max_gap`.
+    `interpolated` flags interpolated meter readings. A run of `n` consecutive
+    interpolated readings spreads the energy of `n + 1` hours evenly: the
+    total is right, the hourly shape is not. This flags the hours of gaps
+    with `n + 1 > max_gap`.
 
-    Il risultato è riferito all'inizio dell'ora: l'ora che inizia in `t` usa
-    le letture di `t` e di `t + 1 h`.
+    The result refers to the start of the hour: the hour starting at `t` uses
+    the readings at `t` and `t + 1 h`.
     """
     long_reading = run_lengths(interpolated) >= max_gap
     at_end = long_reading.shift(-1, fill_value=False)
@@ -179,10 +180,9 @@ def smoothed_hours(interpolated: pd.Series, max_gap: int) -> pd.Series:
 
 
 def build_pv(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeIndex) -> pd.Series:
-    """Produzione fotovoltaica [kW] per la taglia configurata.
+    """PV output [kW] for the configured plant size.
 
-    Corregge i valori anomali: produzione negativa o produzione con
-    irraggiamento nullo (di notte) vengono portate a zero.
+    Negative output, and output with zero irradiance (at night), are set to zero.
     """
     pv = raw["pv_kw_per_kwp"].reindex(index) * config["pv"]["peak_kw"]
     dark = raw["irradiance_plane_w_m2"].reindex(index) <= 0
@@ -190,11 +190,11 @@ def build_pv(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeIndex)
 
 
 def build_weather(raw: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
-    """Meteo orario con tutte le grandezze riferite all'inizio dell'ora.
+    """Hourly weather with every quantity referred to the start of the hour.
 
-    Open-Meteo fornisce la radiazione come media dell'ora precedente
-    l'istante indicato: viene spostata indietro di un'ora per riferirla
-    all'inizio dell'intervallo. Temperatura e nuvolosità sono istantanee.
+    Open-Meteo reports radiation as the mean of the hour *before* the given
+    instant, so it is shifted back by one hour. Temperature and cloud cover
+    are instantaneous.
     """
     radiation = raw["shortwave_radiation"].copy()
     radiation.index = radiation.index - HOUR
@@ -208,29 +208,29 @@ def build_weather(raw: pd.DataFrame, index: pd.DatetimeIndex) -> pd.DataFrame:
 
 
 def build_price(raw: pd.DataFrame, index: pd.DatetimeIndex) -> pd.Series:
-    """Prezzo day-ahead [EUR/kWh]. I prezzi negativi sono reali e vengono mantenuti."""
+    """Day-ahead price [EUR/kWh]. Negative prices are real and are kept."""
     return (raw["price_eur_mwh"].reindex(index) / 1000.0).rename("price_eur_kwh")
 
 
 def build_carbon(raw: pd.DataFrame, config: dict[str, Any], index: pd.DatetimeIndex) -> pd.Series:
-    """Intensità di carbonio oraria [kgCO2eq/kWh] dal mix di produzione ogni 15 minuti."""
+    """Hourly carbon intensity [kgCO2eq/kWh] from the 15-minute generation mix."""
     hourly_generation = raw[list(config["emission_factors"])].resample("h").mean()
     intensity = data.carbon_intensity(hourly_generation, config["emission_factors"])
     return (intensity.reindex(index) / 1000.0).rename("carbon_kg_kwh")
 
 
-# --- Dataset completo -------------------------------------------------------
+# --- Full dataset ------------------------------------------------------------
 
 
 def _read_raw(raw_dir: Path, filename: str) -> pd.DataFrame:
     path = raw_dir / filename
     if not path.exists():
-        raise FileNotFoundError(f"Manca {path}: esegui prima `python -m microgrid.data`.")
+        raise FileNotFoundError(f"Missing {path}: run `python -m microgrid.data` first.")
     return pd.read_csv(path, index_col=0, parse_dates=True, low_memory=False)
 
 
 def build_dataset(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Costruisce il dataset pulito e un riepilogo delle operazioni di pulizia."""
+    """Build the clean dataset and a summary of what the cleaning did."""
     config = config or load_config()
     raw_dir = resolve_path(config["paths"]["raw"])
     max_gap = config["cleaning"]["max_gap_hours"]
@@ -252,13 +252,13 @@ def build_dataset(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, d
     for column in VALUE_COLUMNS:
         frame[column] = fill_short_gaps(frame[column], max_gap)
 
-    # Un giorno locale è valido se non ha buchi lunghi nel carico e nessun
-    # valore mancante dopo l'interpolazione dei buchi brevi.
+    # A local day is valid if the load has no long gaps and nothing is still
+    # missing once the short gaps have been filled.
     days = local_days(index, config)
     bad_hour = load["load_gap"] | frame[VALUE_COLUMNS].isna().any(axis=1)
     frame["valid_day"] = ~bad_hour.groupby(days.to_numpy()).transform("any")
 
-    # Riscalatura del carico al picco desiderato, calcolato sui giorni validi.
+    # Rescale the load to the target peak, measured on valid days only.
     real_load = frame["load_kw"].where(frame["valid_day"])
     target_peak = config["load"]["scale_to_peak_kw"]
     scale = 1.0 if target_peak is None else target_peak / real_load.max()
@@ -292,16 +292,16 @@ def build_dataset(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, d
 
 
 def load_dataset(config: dict[str, Any] | None = None) -> pd.DataFrame:
-    """Legge il dataset pulito da `data/processed/`."""
+    """Read the clean dataset from `data/processed/`."""
     config = config or load_config()
     path = resolve_path(config["paths"]["processed"]) / DATASET_FILE
     if not path.exists():
-        raise FileNotFoundError(f"Manca {path}: esegui prima `python -m microgrid.dataset`.")
+        raise FileNotFoundError(f"Missing {path}: run `python -m microgrid.dataset` first.")
     return pd.read_parquet(path)
 
 
 def main() -> None:
-    """Costruisce e salva il dataset pulito (comando `python -m microgrid.dataset`)."""
+    """Build and save the clean dataset (`python -m microgrid.dataset`)."""
     config = load_config()
     frame, summary = build_dataset(config)
     processed_dir = resolve_path(config["paths"]["processed"])

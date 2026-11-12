@@ -1,36 +1,35 @@
-"""Simulazione a orizzonte mobile: un piano al giorno, eseguito sui dati reali.
+"""Rolling-horizon simulation: one plan per day, executed on the actual data.
 
-Uso:
+Usage:
 
     python -m microgrid.simulate
 
-Per ogni giorno del periodo simulato:
+For each day of the simulated period:
 
-1. il MILP calcola il piano della batteria su carico e fotovoltaico previsti;
-2. il piano è eseguito sui valori reali: la batteria segue il programma,
-   la differenza fra previsto e reale è assorbita dalla rete;
-3. l'energia rimasta in batteria è lo stato iniziale del giorno successivo.
+1. the MILP computes the battery plan on forecast load and PV;
+2. the plan is executed on the actual values;
+3. the energy left in the battery is the initial state of the next day.
 
-Scrive il dettaglio orario in `data/processed/simulation.parquet` e la serie
-giornaliera di costi ed emissioni in `results/simulation_daily.csv`.
+Writes the hourly detail to `data/processed/simulation.parquet` and the daily
+cost and emission series to `results/simulation_daily.csv`.
 
-Regole di correzione applicate in tempo reale, ora per ora (`apply_plan`):
+A plan can be executed in two ways (`apply_plan`).
 
-- la batteria non esce dai limiti dello stato di carica: carica e scarica
-  programmate sono ridotte a quanto è fisicamente possibile;
-- se l'acquisto supererebbe la potenza di rete, si riduce la carica;
-- il surplus si vende; si taglia il fotovoltaico se il prezzo di vendita è
-  negativo o se la vendita supererebbe la potenza di rete.
+To the letter: the battery follows its schedule and the grid absorbs the
+difference between forecast and reality.
 
-Con la correzione in tempo reale (`correct=True`) si segue lo scambio con la
-rete previsto dal piano, non il programma della batteria: l'errore di
-previsione è assorbito dalla batteria, finché può. Due limiti evitano gli
-scambi svantaggiosi:
+With real-time correction (`correct=True`): we track the grid exchange the
+plan expected instead of the battery schedule, so the battery absorbs the
+forecast error for as long as it can. Two caps avoid bad trades:
 
-- la batteria carica al più il surplus reale, più la carica dalla rete che
-  il piano aveva deciso;
-- la batteria scarica al più il deficit reale, più la scarica verso la rete
-  che il piano aveva deciso.
+- the battery charges at most the actual surplus, plus whatever grid
+  charging the plan had decided on;
+- the battery discharges at most the actual deficit, plus whatever
+  discharging to the grid the plan had decided on.
+
+In both cases the battery stays within its state-of-charge limits, charging
+is reduced if imports would exceed the grid limit, and PV is curtailed when
+the sell price is negative or exports would exceed the grid limit.
 """
 
 from __future__ import annotations
@@ -51,7 +50,7 @@ INPUT_COLUMNS = ["load_kw", "pv_kw", "price_eur_kwh", "carbon_kg_kwh"]
 
 
 class SimulationError(RuntimeError):
-    """Il carico reale non può essere coperto rispettando i limiti dell'impianto."""
+    """The actual load cannot be met within the limits of the plant."""
 
 
 def apply_plan(
@@ -62,16 +61,16 @@ def apply_plan(
     soc_initial_kwh: float,
     schedule: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Esegue il programma della batteria sui valori reali di un periodo.
+    """Execute a battery schedule on the actual values of a period.
 
-    `charge` e `discharge` sono le potenze programmate [kW]; `actual` contiene
-    `load_kw`, `pv_kw`, `price_eur_kwh` e `carbon_kg_kwh` reali, con lo stesso
-    indice. Restituisce, per ogni ora, i flussi realmente avvenuti, l'energia
-    in batteria a fine ora, il costo [EUR] e le emissioni [kgCO2].
+    `charge` and `discharge` are the scheduled powers [kW]; `actual` holds the
+    real `load_kw`, `pv_kw`, `price_eur_kwh` and `carbon_kg_kwh`, with the
+    same index. Returns, for each hour, the flows that really happened, the
+    energy in the battery at the end of the hour, the cost [EUR] and the
+    emissions [kgCO2].
 
-    Se è indicato il piano completo (`schedule`, come restituito da
-    `optimize_day`), si applica la correzione in tempo reale descritta in
-    testa al modulo.
+    If the full plan is given (`schedule`, as returned by `optimize_day`),
+    the real-time correction described in the module docstring is applied.
     """
     battery, limits = config["battery"], battery_limits(config)
     step = float(config["time"]["step_hours"])
@@ -88,31 +87,32 @@ def apply_plan(
         if schedule is not None:
             planned = schedule.iloc[hour]
             planned_surplus = float(planned["pv_kw"] - planned["load_kw"])
-            # Componenti del piano che scambiano con la rete di proposito.
+            # Parts of the plan that trade with the grid on purpose (price arbitrage).
             from_grid = charge_kw - min(charge_kw, max(planned_surplus, 0.0))
             to_grid = discharge_kw - min(discharge_kw, max(-planned_surplus, 0.0))
-            # Potenza che la batteria dovrebbe cedere (+) o assorbire (−) per
-            # scambiare con la rete quanto previsto dal piano.
+            # Power the battery must deliver (+) or absorb (−) so that the grid
+            # exchange matches what the plan expected.
             planned_exchange = float(planned["grid_import_kw"] - planned["grid_export_kw"])
             needed = (load - pv) - planned_exchange
             discharge_kw = min(max(needed, 0.0), max(load - pv, 0.0) + to_grid, power_max)
             charge_kw = min(max(-needed, 0.0), max(pv - load, 0.0) + from_grid, power_max)
-        # La batteria segue il programma, entro ciò che lo stato di carica consente.
+        # Whatever the schedule says, the battery cannot leave its state-of-charge limits.
         charge_kw = min(charge_kw, max(limits["soc_max_kwh"] - soc, 0.0) / (eta_charge * step))
         discharge_kw = min(discharge_kw, max(soc - limits["soc_min_kwh"], 0.0) * eta_discharge / step)
 
-        # La rete assorbe la differenza fra previsto e reale.
+        # The grid takes whatever is left over.
         net = load - pv + charge_kw - discharge_kw
         if net > grid_max:
             charge_kw = max(charge_kw - (net - grid_max), 0.0)
             net = load - pv + charge_kw - discharge_kw
             if net > grid_max + ZERO_TOLERANCE:
                 raise SimulationError(
-                    f"Alle {actual.index[hour]} servono {net:.1f} kW dalla rete, più del massimo di {grid_max:.1f} kW."
+                    f"At {actual.index[hour]} the grid would have to supply {net:.1f} kW, "
+                    f"above its limit of {grid_max:.1f} kW."
                 )
         grid_import = max(net, 0.0)
         surplus = max(-net, 0.0)
-        # Vendere a prezzo negativo costa: si taglia il fotovoltaico, fin dove basta.
+        # Selling at a negative price costs money: curtail PV instead, as far as needed.
         curtailment = min(surplus, pv) if sell_price.iloc[hour] < 0 else 0.0
         curtailment = max(curtailment, min(surplus - grid_max, pv))
         grid_export = surplus - curtailment
@@ -134,7 +134,7 @@ def apply_plan(
 
 
 def daily_totals(actual: pd.DataFrame, real: pd.DataFrame, soc_start_kwh: float, step: float) -> dict[str, Any]:
-    """Totali di un giorno a partire dai valori reali e dai flussi avvenuti."""
+    """Totals of one day from the actual values and the flows that happened."""
     return {
         "hours": len(actual),
         "cost_eur": real["cost_eur"].sum(),
@@ -153,20 +153,21 @@ def daily_totals(actual: pd.DataFrame, real: pd.DataFrame, soc_start_kwh: float,
 def simulate_rule(
     inputs: pd.DataFrame, config: dict[str, Any], use_battery: bool = True
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Simula le strategie senza previsione né ottimizzazione.
+    """Simulate the strategies that use neither forecasts nor optimisation.
 
-    Con `use_battery=True` è la regola ingenua: la batteria carica quando il
-    fotovoltaico supera il carico e scarica quando non basta, entro i suoi
-    limiti. Con `use_battery=False` la batteria non viene mai usata.
-    Restituisce dettaglio orario e serie giornaliera, come `simulate`.
+    With `use_battery=True` this is the naive rule: the battery charges when
+    PV exceeds the load and discharges when it falls short, within its
+    limits. With `use_battery=False` the battery is never used. Returns the
+    hourly detail and the daily series, like `simulate`.
     """
     if inputs[INPUT_COLUMNS].isna().any().any():
-        raise ValueError("I dati della simulazione contengono valori mancanti.")
+        raise ValueError("The simulation inputs contain missing values.")
     step = float(config["time"]["step_hours"])
     limits = battery_limits(config)
     power = limits["max_power_kw"] if use_battery else 0.0
     surplus = inputs["pv_kw"] - inputs["load_kw"]
     soc = limits["soc_initial_kwh"]
+    # Ask for the whole surplus or deficit; `apply_plan` trims it to what the battery can take.
     real = apply_plan(surplus.clip(0, power), (-surplus).clip(0, power), inputs, config, soc)
     days = local_days(inputs.index, config)
     daily = []
@@ -185,22 +186,22 @@ def simulate(
     carbon_weight: float | None = None,
     correct: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Simula giorno per giorno le ore di `inputs`, che devono essere consecutive.
+    """Simulate day by day the hours in `inputs`, which must be consecutive.
 
-    `inputs` contiene i valori reali (`load_kw`, `pv_kw`, `price_eur_kwh`,
-    `carbon_kg_kwh`) e le colonne `load_column` e `pv_column` su cui il MILP
-    pianifica. Passando `load_kw` e `pv_kw` anche come colonne di
-    pianificazione si ottiene il caso di previsione perfetta.
+    `inputs` holds the actual values (`load_kw`, `pv_kw`, `price_eur_kwh`,
+    `carbon_kg_kwh`) and the columns `load_column` and `pv_column` the MILP
+    plans on. Passing `load_kw` and `pv_kw` as planning columns too gives the
+    perfect-forecast case.
 
-    Con `correct=True` il programma è eseguito con la correzione in tempo
-    reale descritta in testa al modulo.
+    With `correct=True` the plan is executed with the real-time correction
+    described in the module docstring.
 
-    Restituisce il dettaglio orario e la serie giornaliera. Nel dettaglio
-    le colonne `planned_*` sono il programma, le altre ciò che è avvenuto.
+    Returns the hourly detail and the daily series. In the hourly detail the
+    `planned_*` columns are the schedule, the others what actually happened.
     """
     needed = [*INPUT_COLUMNS, load_column, pv_column]
     if inputs[needed].isna().any().any():
-        raise ValueError("I dati della simulazione contengono valori mancanti.")
+        raise ValueError("The simulation inputs contain missing values.")
     step = float(config["time"]["step_hours"])
     days = local_days(inputs.index, config)
     soc = battery_limits(config)["soc_initial_kwh"]
@@ -246,7 +247,8 @@ def simulate(
                 "planned_emissions_kg": plan.emissions_kg,
             }
         )
-        # Lo stato reale di fine giornata è quello iniziale del giorno dopo.
+        # Tomorrow starts from where the battery really ended up, not from where the plan
+        # thought it would. The clip only guards against floating-point drift at the limits.
         soc = float(np.clip(real["soc_kwh"].iloc[-1], *_soc_bounds(config)))
     return pd.concat(hourly), pd.DataFrame(daily).set_index("day")
 
@@ -257,7 +259,7 @@ def _soc_bounds(config: dict[str, Any]) -> tuple[float, float]:
 
 
 def simulation_inputs(config: dict[str, Any], split: str) -> pd.DataFrame:
-    """Valori reali e previsioni delle ore di `split` (`validation` o `test`)."""
+    """Actual values and forecasts for the hours of `split` (`validation` or `test`)."""
     dataset, forecasts = load_dataset(config), load_forecasts(config)
     hours = forecasts.index[forecasts["split"] == split]
     return pd.concat(
@@ -266,16 +268,16 @@ def simulation_inputs(config: dict[str, Any], split: str) -> pd.DataFrame:
 
 
 def load_simulation(config: dict[str, Any] | None = None) -> pd.DataFrame:
-    """Legge il dettaglio orario salvato da `python -m microgrid.simulate`."""
+    """Read the hourly detail saved by `python -m microgrid.simulate`."""
     config = config or load_config()
     path = resolve_path(config["paths"]["processed"]) / HOURLY_FILE
     if not path.exists():
-        raise FileNotFoundError(f"Manca {path}: esegui prima `python -m microgrid.simulate`.")
+        raise FileNotFoundError(f"Missing {path}: run `python -m microgrid.simulate` first.")
     return pd.read_parquet(path)
 
 
 def main() -> None:
-    """Simula il periodo configurato e salva i risultati (comando `python -m microgrid.simulate`)."""
+    """Simulate the configured period and save the results (`python -m microgrid.simulate`)."""
     config = load_config()
     split = config["simulate"]["split"]
     hourly, daily = simulate(simulation_inputs(config, split), config)
@@ -285,8 +287,8 @@ def main() -> None:
     daily.to_csv(results_dir / DAILY_FILE, float_format="%.4f")
     print(daily.round(2).to_string())
     print(
-        f"\n{split}: {len(daily)} giorni, costo {daily['cost_eur'].sum():.2f} EUR "
-        f"(previsto {daily['planned_cost_eur'].sum():.2f}), emissioni {daily['emissions_kg'].sum():.1f} kgCO2"
+        f"\n{split}: {len(daily)} days, cost {daily['cost_eur'].sum():.2f} EUR "
+        f"(planned {daily['planned_cost_eur'].sum():.2f}), emissions {daily['emissions_kg'].sum():.1f} kgCO2"
     )
 
 

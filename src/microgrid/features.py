@@ -1,13 +1,13 @@
-"""Costruzione delle feature per i modelli di previsione.
+"""Feature construction for the forecasting models.
 
-La previsione delle 24 ore del giorno D+1 è emessa alla mezzanotte locale
-fra D e D+1. Ogni feature usa quindi solo:
+The forecast for the 24 hours of day D+1 is issued at local midnight between
+D and D+1. So every feature may only use:
 
-- informazioni di calendario del giorno D+1;
-- meteo previsto per il giorno D+1 (qui: il meteo reale, vedi README);
-- misure della grandezza da prevedere fino alla fine del giorno D.
+- calendar information about day D+1;
+- the weather forecast for day D+1 (here: the observed weather, see README);
+- measurements of the target up to the end of day D.
 
-Le misure dei giorni non validi non vengono mai usate come feature.
+Measurements from invalid days are never used as features.
 """
 
 from __future__ import annotations
@@ -24,16 +24,16 @@ WEATHER_COLUMNS = ["temperature_c", "radiation_w_m2", "cloud_cover_pct"]
 
 
 def day_starts(index: pd.DatetimeIndex, config: dict[str, Any]) -> pd.DatetimeIndex:
-    """Per ogni ora, l'istante (UTC) della mezzanotte locale con cui inizia il suo giorno.
+    """For each hour, the UTC instant of the local midnight that starts its day.
 
-    È l'istante in cui viene emessa la previsione per quell'ora.
+    That is when the forecast for that hour is issued.
     """
     midnight = local_index(index, config).normalize()
     return midnight.tz_convert("UTC").rename("issue_time")
 
 
 def calendar_features(index: pd.DatetimeIndex, config: dict[str, Any], weekday: bool = True) -> pd.DataFrame:
-    """Feature di calendario, in ora locale, con codifica ciclica seno/coseno."""
+    """Calendar features in local time, with cyclic sine/cosine encoding."""
     local = local_index(index, config)
     hour = local.hour + local.minute / 60
     day_of_year = local.day_of_year
@@ -63,11 +63,11 @@ def calendar_features(index: pd.DatetimeIndex, config: dict[str, Any], weekday: 
 def lag_features(
     series: pd.Series, valid: pd.Series, lags_hours: list[int], issue_time: pd.DatetimeIndex
 ) -> pd.DataFrame:
-    """Valori della serie di `lag` ore prima.
+    """Values of the series `lag` hours earlier.
 
-    Un valore ritardato è scartato (NaN) se proviene da un giorno non valido
-    o se è stato misurato dall'istante di emissione in poi: succede solo
-    nel giorno di 25 ore, la cui ultima ora dista 24 ore dalla prima.
+    A lagged value is dropped (NaN) if it comes from an invalid day, or if it
+    was measured at or after the issue time. The latter only happens on the
+    25-hour day, whose last hour is 24 hours after its first.
     """
     usable = series.where(valid)
     features = {}
@@ -80,15 +80,15 @@ def lag_features(
 
 
 def history_features(series: pd.Series, valid: pd.Series, days: pd.Index, min_days: int) -> pd.DataFrame:
-    """Medie della serie sul giorno precedente e sui 7 giorni precedenti.
+    """Mean of the series over the previous day and over the previous 7 days.
 
-    Sono uguali per tutte le ore dello stesso giorno. I giorni non validi
-    non entrano nelle medie; la media settimanale richiede almeno
-    `min_days` giorni validi.
+    Same value for every hour of a day. Invalid days are left out of the
+    means; the weekly mean needs at least `min_days` valid days.
     """
     usable = series.where(valid)
     daily = usable.groupby(days.to_numpy()).mean()
     daily = daily.reindex(pd.date_range(daily.index.min(), daily.index.max(), freq="D"))
+    # shift(1) so that a day never sees its own mean.
     previous_day = daily.shift(1)
     previous_week = daily.shift(1).rolling(7, min_periods=min_days).mean()
     return pd.DataFrame(
@@ -101,17 +101,17 @@ def history_features(series: pd.Series, valid: pd.Series, days: pd.Index, min_da
 
 
 def weather_features(dataset: pd.DataFrame, days: pd.Index) -> pd.DataFrame:
-    """Meteo dell'ora da prevedere e temperatura media del suo giorno."""
+    """Weather of the hour to forecast, plus the mean temperature of its day."""
     features = dataset[WEATHER_COLUMNS].copy()
     features["temperature_day_mean"] = dataset["temperature_c"].groupby(days.to_numpy()).transform("mean")
     return features
 
 
 def build_features(dataset: pd.DataFrame, config: dict[str, Any], target: str) -> pd.DataFrame:
-    """Matrice delle feature per prevedere `target` (`load_kw` o `pv_kw`).
+    """Feature matrix for forecasting `target` (`load_kw` or `pv_kw`).
 
-    Ha una riga per ogni ora del dataset. Le feature mancanti restano NaN:
-    LightGBM le gestisce direttamente.
+    One row per hour of the dataset. Missing features stay NaN: LightGBM
+    handles them natively.
     """
     settings = config["forecast"]
     index = dataset.index
@@ -119,7 +119,7 @@ def build_features(dataset: pd.DataFrame, config: dict[str, Any], target: str) -
     valid = dataset["valid_day"] if target == "load_kw" else pd.Series(True, index=index)
     return pd.concat(
         [
-            # Il giorno della settimana non influenza il sole: serve solo per il carico.
+            # The sun does not care what day of the week it is: weekday features are for load only.
             calendar_features(index, config, weekday=target == "load_kw"),
             weather_features(dataset, days),
             lag_features(dataset[target], valid, settings["lags_hours"], day_starts(index, config)),

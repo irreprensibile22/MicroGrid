@@ -1,18 +1,18 @@
-# Parametri di default del progetto. Nessun numero va scritto nel codice.
+# Default project parameters. No number should be hard-coded elsewhere.
 
 seed: 42
 
 site:
-  name: Costanza (DE)
+  name: Konstanz (DE)
   latitude: 47.66
   longitude: 9.18
   timezone: Europe/Berlin
-  holidays_country: DE     # festività nazionali...
-  holidays_subdivision: BW # ...e del Baden-Württemberg
+  holidays_country: DE     # national holidays...
+  holidays_subdivision: BW # ...plus those of Baden-Württemberg
 
 time:
   step_hours: 1        # Δt
-  horizon_hours: 24    # pianificazione sul giorno D+1
+  horizon_hours: 24    # planning covers day D+1
 
 pv:
   peak_kw: 100.0
@@ -22,18 +22,18 @@ battery:
   max_power_kw: 50.0       # P_max
   eta_charge: 0.95         # η_c
   eta_discharge: 0.95      # η_d
-  soc_min_frac: 0.10       # SOC_min, frazione di E_max
-  soc_max_frac: 0.90       # SOC_max, frazione di E_max
-  soc_initial_frac: 0.50   # SOC_0, frazione di E_max
+  soc_min_frac: 0.10       # SOC_min, as a fraction of E_max
+  soc_max_frac: 0.90       # SOC_max, as a fraction of E_max
+  soc_initial_frac: 0.50   # SOC_0, as a fraction of E_max
 
 grid:
-  max_power_kw: 100.0             # G_max, in acquisto e in vendita
-  # Oneri, tasse e costi di rete sull'energia acquistata (τ): valore assunto.
-  # Prezzo di acquisto = day-ahead + τ; prezzo di vendita = day-ahead.
+  max_power_kw: 100.0             # G_max, for both import and export
+  # Levies, taxes and network charges on imported energy (τ): an assumed value.
+  # Buy price = day-ahead + τ; sell price = day-ahead.
   import_surcharge_eur_kwh: 0.20
 
 objective:
-  carbon_weight_eur_kg: 0.0       # λ; 0 = si minimizza il solo costo
+  carbon_weight_eur_kg: 0.0       # λ; 0 = minimise cost only
 
 paths:
   raw: data/raw
@@ -41,44 +41,43 @@ paths:
   models: models
   results: results
 
-# --- Dati -------------------------------------------------------------------
+# --- Data --------------------------------------------------------------------
 
 data:
-  # Periodo di studio (date locali, estremi inclusi). È la finestra in cui
-  # tutte le utenze scelte hanno misure complete.
+  # Study period (local dates, both ends included). It is the window in which
+  # all the chosen households have complete measurements.
   start: "2015-11-01"
   end: "2018-02-03"
 
 load:
   source_url: https://data.open-power-system-data.org/household_data/2020-04-15/household_data_60min_singleindex.csv
-  # Utenze di Costanza sommate per formare il carico della microgrid.
-  # Il consumo di ciascuna è: grid_import + pv − grid_export (colonne presenti).
+  # Households in Konstanz, summed to form the microgrid load.
+  # Each one's consumption is: grid_import + pv − grid_export (columns present).
   households:
-    - import: DE_KN_residential4_grid_import   # fotovoltaico dietro il contatore
+    - import: DE_KN_residential4_grid_import   # PV behind the meter
       pv: DE_KN_residential4_pv
       export: DE_KN_residential4_grid_export
-    - import: DE_KN_residential5_grid_import   # senza fotovoltaico
-  # Il carico aggregato reale (picco di pochi kW) viene riscalato a questo
-  # picco per essere coerente con la taglia dell'impianto.
-  # null = nessuna riscalatura.
+    - import: DE_KN_residential5_grid_import   # no PV
+  # The real aggregate load (a peak of a few kW) is rescaled to this peak so
+  # that it matches the size of the plant. null = no rescaling.
   scale_to_peak_kw: 50.0
 
 cleaning:
-  # Buchi fino a questa durata vengono interpolati; i giorni che contengono
-  # buchi più lunghi (anche già interpolati dal fornitore dei dati) sono
-  # marcati come non validi.
+  # Gaps up to this length are interpolated; days containing longer gaps
+  # (including ones already interpolated by the data provider) are flagged
+  # as invalid.
   max_gap_hours: 6
 
 split:
-  # Divisione in ordine temporale, per giorni interi. Il resto è il test set.
+  # Chronological split, by whole days. Whatever is left is the test set.
   train: 0.70
   validation: 0.15
 
 pvgis:
   url: https://re.jrc.ec.europa.eu/api/v5_3/seriescalc
-  loss_percent: 14.0    # perdite di sistema
-  tilt_deg: 35.0        # inclinazione dei moduli
-  azimuth_deg: 0.0      # 0 = sud
+  loss_percent: 14.0    # system losses
+  tilt_deg: 35.0        # module tilt
+  azimuth_deg: 0.0      # 0 = south
 
 weather:
   url: https://archive-api.open-meteo.com/v1/archive
@@ -86,15 +85,15 @@ weather:
 
 market:
   url: https://api.energy-charts.info
-  # Nel periodo di studio la Germania era nella zona di mercato DE-AT-LU
-  # (divisa in DE-LU e AT dal 1° ottobre 2018).
+  # During the study period Germany was in the DE-AT-LU bidding zone
+  # (split into DE-LU and AT on 1 October 2018).
   bidding_zone: DE-AT-LU
   country: de
 
-# Fattori di emissione sul ciclo di vita [gCO2eq/kWh].
-# Fonte: IPCC AR5 WG3, Annex III, tabella A.III.2 (valori mediani).
-# Il rapporto non distingue lignite e carbone: si usa 820 per entrambi.
-# Olio, rifiuti e "altro" non sono nella tabella: valori assunti.
+# Life-cycle emission factors [gCO2eq/kWh].
+# Source: IPCC AR5 WG3, Annex III, table A.III.2 (median values).
+# The report does not separate lignite from hard coal: 820 is used for both.
+# Oil, waste and "others" are not in the table: assumed values.
 emission_factors:
   Nuclear: 12
   Hydro Run-of-River: 24
@@ -104,63 +103,63 @@ emission_factors:
   Fossil brown coal / lignite: 820
   Fossil hard coal: 820
   Fossil coal-derived gas: 820
-  Fossil oil: 650        # assunto
+  Fossil oil: 650        # assumed
   Fossil gas: 490
   Geothermal: 38
-  Others: 700            # assunto
-  Waste: 700             # assunto
+  Others: 700            # assumed
+  Waste: 700             # assumed
   Wind offshore: 12
   Wind onshore: 11
   Solar: 45
 
-# --- Previsione --------------------------------------------------------------
+# --- Forecast ----------------------------------------------------------------
 
 forecast:
-  # La previsione del giorno D+1 è emessa alla mezzanotte locale fra D e D+1:
-  # usa solo misure fino alla fine del giorno D.
+  # The forecast for day D+1 is issued at local midnight between D and D+1:
+  # it only uses measurements up to the end of day D.
   lags_hours: [24, 48, 168]
-  # Numero minimo di giorni validi per calcolare la media dei 7 giorni precedenti.
+  # Minimum number of valid days needed for the mean of the previous 7 days.
   min_days_weekly_mean: 4
-  cv_folds: 4                  # finestre espandibili sui dati di addestramento
-  # Durante validazione e test il modello viene riaddestrato ogni N giorni con
-  # tutte le misure disponibili fino a quel momento.
+  cv_folds: 4                  # expanding windows on the training data
+  # During validation and test the model is refitted every N days on all the
+  # measurements available up to then.
   refit_every_days: 7
   max_boosting_rounds: 3000
   early_stopping_rounds: 100
-  # Parametri fissi di LightGBM.
+  # Fixed LightGBM parameters.
   base_params:
     objective: regression
     learning_rate: 0.03
     subsample: 0.8
     subsample_freq: 1
     colsample_bytree: 0.8
-  # Griglia degli iperparametri: si provano tutte le combinazioni.
+  # Hyperparameter grid: every combination is tried.
   grid:
     num_leaves: [7, 15, 31]
     min_child_samples: [20, 50, 100]
     reg_lambda: [0.0, 10.0]
 
-# --- Ottimizzazione ----------------------------------------------------------
+# --- Optimisation ------------------------------------------------------------
 
 optimize:
   solver: highs
-  rel_gap: 1.0e-6              # scarto relativo massimo dall'ottimo
+  rel_gap: 1.0e-6              # largest relative gap from the optimum
   time_limit_s: 60
-  # Giorno (data locale) disegnato da `python -m microgrid.optimize`.
+  # Day (local date) plotted by `python -m microgrid.optimize`.
   example_day: "2017-09-12"
 
-# --- Simulazione -------------------------------------------------------------
+# --- Simulation --------------------------------------------------------------
 
 simulate:
-  split: test                  # periodo simulato: validation o test
+  split: test                  # simulated period: validation or test
 
-# --- Confronti ---------------------------------------------------------------
+# --- Comparison --------------------------------------------------------------
 
 evaluate:
-  # Pesi λ [EUR/kgCO2] con cui si ripete la simulazione per il fronte di Pareto.
+  # Weights λ [EUR/kgCO2] the simulation is repeated with for the Pareto front.
   pareto_carbon_weights: [0.0, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0]
-  # Analisi di sensitività: si cambia un parametro alla volta, gli altri
-  # restano ai valori di default. La potenza della batteria non cambia.
+  # Sensitivity analysis: one parameter changes at a time, the others stay at
+  # their defaults. The battery power does not change.
   sensitivity:
     battery_capacity_kwh: [50.0, 100.0, 200.0, 400.0]
     pv_peak_kw: [50.0, 100.0, 150.0, 200.0]

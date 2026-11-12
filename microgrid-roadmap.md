@@ -1,287 +1,287 @@
-# Gestione energetica di una microgrid — Roadmap del progetto
+# Microgrid energy management — Project roadmap
 
-Pipeline "predict-then-optimize": un modello di ML prevede carico e produzione fotovoltaica del giorno dopo, un modello MILP decide ora per ora come usare batteria e rete per minimizzare costo ed emissioni.
+A "predict-then-optimise" pipeline: an ML model forecasts next-day load and PV output, and a MILP model decides hour by hour how to use the battery and the grid to minimise cost and emissions.
 
-Ogni fase termina con qualcosa di pubblicabile: fai un commit (o più) alla fine di ciascuna.
-
----
-
-## Fase 0 — Definizione del problema
-
-1. Scegli lo scenario: un edificio o piccolo campus con fotovoltaico, una batteria e connessione alla rete.
-2. Fissa i parametri dell'impianto (valori di partenza ragionevoli, poi li varierai):
-   - potenza di picco del fotovoltaico (es. 100 kWp)
-   - capacità della batteria (es. 200 kWh) e potenza massima di carica/scarica (es. 50 kW)
-   - rendimenti di carica e scarica (es. 0,95 ciascuno)
-   - stato di carica minimo e massimo (es. 10%–90%)
-3. Fissa risoluzione e orizzonte: passo orario, pianificazione sulle 24 ore successive.
-4. Scrivi in una frase la domanda a cui il progetto risponde, ad esempio: "Quanto si risparmia in costo e CO₂ gestendo la batteria con previsione + ottimizzazione rispetto a una regola semplice?"
-
-**Output:** sezione "Problema" del README.
+Every phase ends with something publishable: make one commit (or more) at the end of each.
 
 ---
 
-## Fase 1 — Setup del repository
+## Phase 0 — Problem definition
 
-1. Crea il repository su GitHub con licenza (MIT) e `.gitignore` per Python.
-2. Crea la struttura:
+1. Choose the scenario: a building or small campus with PV, a battery and a grid connection.
+2. Fix the plant parameters (reasonable starting values, to be varied later):
+   - PV peak power (e.g. 100 kWp)
+   - battery capacity (e.g. 200 kWh) and maximum charge/discharge power (e.g. 50 kW)
+   - charge and discharge efficiencies (e.g. 0.95 each)
+   - minimum and maximum state of charge (e.g. 10%–90%)
+3. Fix resolution and horizon: hourly step, planning over the next 24 hours.
+4. Write in one sentence the question the project answers, for example: "How much do we save in cost and CO₂ by running the battery with forecasting + optimisation rather than with a simple rule?"
+
+**Output:** the "Problem" section of the README.
+
+---
+
+## Phase 1 — Repository setup
+
+1. Create the GitHub repository with a licence (MIT) and a Python `.gitignore`.
+2. Create the layout:
 
    ```
    microgrid-ems/
    ├── README.md
-   ├── pyproject.toml          # dipendenze e configurazione
+   ├── pyproject.toml          # dependencies and configuration
    ├── config/
-   │   └── default.yaml        # parametri impianto, percorsi, seed
+   │   └── default.yaml        # plant parameters, paths, seed
    ├── data/
-   │   ├── raw/                # dati scaricati (non versionati)
-   │   └── processed/          # dataset pulito (non versionato)
-   ├── notebooks/              # solo analisi esplorativa e grafici
+   │   ├── raw/                # downloaded data (not versioned)
+   │   └── processed/          # clean dataset (not versioned)
+   ├── notebooks/              # exploratory analysis and charts only
    ├── src/microgrid/
-   │   ├── data.py             # download e pulizia
-   │   ├── features.py         # costruzione delle feature
-   │   ├── forecast.py         # modelli di previsione
-   │   ├── optimize.py         # modello MILP
-   │   ├── simulate.py         # simulazione a orizzonte mobile
-   │   └── evaluate.py         # metriche e confronti
+   │   ├── data.py             # download and cleaning
+   │   ├── features.py         # feature construction
+   │   ├── forecast.py         # forecasting models
+   │   ├── optimize.py         # MILP model
+   │   ├── simulate.py         # rolling-horizon simulation
+   │   └── evaluate.py         # metrics and comparisons
    ├── scripts/
-   │   └── run_all.py          # esegue l'intero pipeline
+   │   └── run_all.py          # runs the whole pipeline
    ├── tests/
    └── docs/
-       └── formulation.md      # formulazione matematica
+       └── formulation.md      # mathematical formulation
    ```
 
-3. Crea un ambiente virtuale e installa: `pandas`, `numpy`, `scikit-learn`, `lightgbm`, `pyomo` (o `pulp`), `highspy`, `matplotlib`, `pyyaml`, `pytest`.
-4. Aggiungi `data/` al `.gitignore`: i dati si riscaricano con uno script, non si caricano sul repo.
+3. Create a virtual environment and install: `pandas`, `numpy`, `scikit-learn`, `lightgbm`, `pyomo` (or `pulp`), `highspy`, `matplotlib`, `pyyaml`, `pytest`.
+4. Add `data/` to `.gitignore`: data is re-downloaded with a script, not uploaded to the repo.
 
-**Output:** repo vuoto ma ordinato, primo commit.
+**Output:** an empty but tidy repo, first commit.
 
 ---
 
-## Fase 2 — Raccolta dei dati
+## Phase 2 — Data collection
 
-Servono cinque serie orarie sullo stesso periodo (almeno 1 anno, meglio 2) e sulla stessa zona:
+Five hourly series are needed, over the same period (at least 1 year, better 2) and the same area:
 
-| Serie | Fonti possibili |
+| Series | Possible sources |
 |---|---|
-| Carico elettrico | UCI ML Repository, Open Power System Data |
-| Produzione fotovoltaica | PVGIS (simulata per una località), Open Power System Data |
-| Meteo (temperatura, irraggiamento, nuvolosità) | Open-Meteo (archivio storico) |
-| Prezzo dell'energia | ENTSO-E Transparency Platform (prezzi day-ahead) |
-| Intensità di carbonio della rete (gCO₂/kWh) | Electricity Maps, oppure calcolata dal mix di generazione ENTSO-E |
+| Electrical load | UCI ML Repository, Open Power System Data |
+| PV output | PVGIS (simulated for a location), Open Power System Data |
+| Weather (temperature, irradiance, cloud cover) | Open-Meteo (historical archive) |
+| Energy price | ENTSO-E Transparency Platform (day-ahead prices) |
+| Grid carbon intensity (gCO₂/kWh) | Electricity Maps, or computed from the ENTSO-E generation mix |
 
-1. Verifica licenza e copertura temporale di ogni fonte prima di sceglierla.
-2. Scrivi in `data.py` una funzione di download per ciascuna serie, che salva in `data/raw/`.
-3. Se il carico è di scala diversa dal tuo scenario (es. nazionale), riscalalo al picco desiderato e dichiaralo nel README.
-4. Annota nel README fonte, periodo e licenza di ogni dataset.
+1. Check the licence and time coverage of each source before choosing it.
+2. Write in `data.py` one download function per series, saving to `data/raw/`.
+3. If the load is at a different scale from your scenario (e.g. national), rescale it to the desired peak and say so in the README.
+4. Record source, period and licence of every dataset in the README.
 
-**Output:** `python -m microgrid.data` scarica tutto da zero.
-
----
-
-## Fase 3 — Pulizia ed esplorazione
-
-1. Porta tutte le serie su un unico indice orario con fuso orario esplicito (attenzione ai cambi d'ora legale).
-2. Gestisci i valori mancanti: interpolazione per buchi brevi, esclusione dei giorni con buchi lunghi.
-3. Controlla valori anomali (carico negativo, fotovoltaico di notte).
-4. Unisci tutto in un solo file `data/processed/dataset.parquet`.
-5. In un notebook, esplora:
-   - profilo medio giornaliero e settimanale del carico
-   - stagionalità di carico e fotovoltaico
-   - correlazione carico–temperatura
-   - andamento di prezzi e intensità di carbonio nelle 24 ore
-6. Dividi i dati **in ordine temporale**: train (es. primi 70%), validation (15%), test (ultimi 15%). Mai mescolare a caso.
-
-**Output:** dataset pulito + notebook `01_exploration.ipynb` con 4–5 grafici.
+**Output:** `python -m microgrid.data` downloads everything from scratch.
 
 ---
 
-## Fase 4 — Previsione (Machine Learning)
+## Phase 3 — Cleaning and exploration
 
-L'obiettivo è prevedere, a una certa ora del giorno D, le 24 ore di carico e di fotovoltaico del giorno D+1.
+1. Put all series on a single hourly index with an explicit time zone (watch out for daylight-saving changes).
+2. Handle missing values: interpolation for short gaps, exclusion of days with long gaps.
+3. Check for anomalous values (negative load, PV at night).
+4. Merge everything into one file, `data/processed/dataset.parquet`.
+5. In a notebook, explore:
+   - mean daily and weekly load profile
+   - seasonality of load and PV
+   - load–temperature correlation
+   - price and carbon intensity over the 24 hours
+6. Split the data **chronologically**: train (e.g. first 70%), validation (15%), test (last 15%). Never shuffle.
 
-1. **Baseline:** previsione ingenua (stessa ora di 7 giorni prima per il carico, stessa ora del giorno prima per il fotovoltaico). Ogni modello va confrontato con questa.
-2. **Feature:**
-   - calendario: ora, giorno della settimana, mese, festivo (codificate anche con seno/coseno)
-   - ritardi: valori di 24, 48 e 168 ore prima
-   - statistiche mobili: media delle ultime 24 ore e 7 giorni
-   - meteo previsto per il giorno D+1
-3. **Evita il leakage:** usa solo informazioni disponibili al momento della previsione. Niente ritardi inferiori a 24 ore.
-4. **Nota sul meteo:** usare il meteo reale come se fosse previsione è una semplificazione ottimistica. Dichiarala nel README, oppure usa previsioni meteo archiviate se disponibili.
-5. **Modello principale:** gradient boosting (LightGBM), uno per il carico e uno per il fotovoltaico.
-6. **Modello opzionale:** una rete LSTM o un MLP, solo per confronto.
-7. **Validazione:** time series cross-validation (finestre espandibili) per scegliere gli iperparametri.
-8. **Metriche** sul test set: MAE, RMSE e MAE normalizzato; riportale in una tabella baseline vs modelli.
-9. Grafici: previsto vs reale su una settimana, errore per ora del giorno.
-10. Salva i modelli addestrati e le previsioni sul test set.
-
-**Output:** `forecast.py`, tabella delle metriche, notebook `02_forecasting.ipynb`.
+**Output:** clean dataset + notebook `01_exploration.ipynb` with 4–5 charts.
 
 ---
 
-## Fase 5 — Formulazione del modello di ottimizzazione
+## Phase 4 — Forecasting (machine learning)
 
-Scrivila in `docs/formulation.md` prima di programmarla.
+The goal is to forecast, at a given hour of day D, the 24 hours of load and PV of day D+1.
 
-**Insiemi e parametri** (per ogni ora t = 1…24, con Δt = 1 h):
+1. **Baseline:** naive forecast (same hour 7 days earlier for load, same hour of the previous day for PV). Every model is compared against it.
+2. **Features:**
+   - calendar: hour, day of week, month, holiday (also sine/cosine encoded)
+   - lags: values 24, 48 and 168 hours earlier
+   - rolling statistics: mean of the last 24 hours and 7 days
+   - weather forecast for day D+1
+3. **Avoid leakage:** use only information available when the forecast is made. No lags shorter than 24 hours.
+4. **Note on weather:** using observed weather as if it were a forecast is an optimistic simplification. State it in the README, or use archived weather forecasts if available.
+5. **Main model:** gradient boosting (LightGBM), one for load and one for PV.
+6. **Optional model:** an LSTM or an MLP, for comparison only.
+7. **Validation:** time-series cross-validation (expanding windows) to choose the hyperparameters.
+8. **Metrics** on the test set: MAE, RMSE and normalised MAE; report them in a baseline-vs-models table.
+9. Charts: forecast vs actual over a week, error by hour of day.
+10. Save the trained models and the test-set forecasts.
 
-- `L_t` carico previsto, `PV_t` fotovoltaico previsto [kW]
-- `c_t` prezzo di acquisto, `s_t` prezzo di vendita [€/kWh]
-- `e_t` intensità di carbonio della rete [kgCO₂/kWh]
-- `E_max` capacità batteria, `P_max` potenza massima, `η_c`, `η_d` rendimenti
-- `SOC_min`, `SOC_max`, `SOC_0` stato di carica iniziale
-- `G_max` potenza massima scambiabile con la rete
-- `λ` peso delle emissioni [€/kgCO₂]
+**Output:** `forecast.py`, metrics table, notebook `02_forecasting.ipynb`.
 
-**Variabili:**
+---
 
-- `p_ch_t`, `p_dis_t` ≥ 0 — potenza di carica e scarica
-- `g_imp_t`, `g_exp_t` ≥ 0 — potenza acquistata e venduta
-- `curt_t` ≥ 0 — fotovoltaico non utilizzato
-- `soc_t` — energia in batteria
-- `u_t` ∈ {0,1} — 1 se la batteria carica, 0 se scarica
-- `v_t` ∈ {0,1} — 1 se si acquista, 0 se si vende
+## Phase 5 — Formulation of the optimisation model
 
-**Funzione obiettivo:**
+Write it in `docs/formulation.md` before coding it.
+
+**Sets and parameters** (for each hour t = 1…24, with Δt = 1 h):
+
+- `L_t` forecast load, `PV_t` forecast PV [kW]
+- `c_t` buy price, `s_t` sell price [€/kWh]
+- `e_t` grid carbon intensity [kgCO₂/kWh]
+- `E_max` battery capacity, `P_max` maximum power, `η_c`, `η_d` efficiencies
+- `SOC_min`, `SOC_max`, `SOC_0` initial state of charge
+- `G_max` maximum power exchanged with the grid
+- `λ` emission weight [€/kgCO₂]
+
+**Variables:**
+
+- `p_ch_t`, `p_dis_t` ≥ 0 — charging and discharging power
+- `g_imp_t`, `g_exp_t` ≥ 0 — power bought and sold
+- `curt_t` ≥ 0 — curtailed PV
+- `soc_t` — energy in the battery
+- `u_t` ∈ {0,1} — 1 if the battery charges, 0 if it discharges
+- `v_t` ∈ {0,1} — 1 if we buy, 0 if we sell
+
+**Objective function:**
 
 ```
 min  Σ_t [ c_t · g_imp_t − s_t · g_exp_t + λ · e_t · g_imp_t ] · Δt
 ```
 
-**Vincoli:**
+**Constraints:**
 
 ```
-Bilancio:      PV_t − curt_t + p_dis_t + g_imp_t = L_t + p_ch_t + g_exp_t
-Dinamica SOC:  soc_t = soc_{t−1} + η_c · p_ch_t · Δt − p_dis_t · Δt / η_d
-Limiti SOC:    SOC_min ≤ soc_t ≤ SOC_max
-Carica:        p_ch_t  ≤ P_max · u_t
-Scarica:       p_dis_t ≤ P_max · (1 − u_t)
-Acquisto:      g_imp_t ≤ G_max · v_t
-Vendita:       g_exp_t ≤ G_max · (1 − v_t)
-Fine giornata: soc_24 ≥ SOC_0
-Taglio PV:     curt_t ≤ PV_t
+Balance:       PV_t − curt_t + p_dis_t + g_imp_t = L_t + p_ch_t + g_exp_t
+SOC dynamics:  soc_t = soc_{t−1} + η_c · p_ch_t · Δt − p_dis_t · Δt / η_d
+SOC limits:    SOC_min ≤ soc_t ≤ SOC_max
+Charge:        p_ch_t  ≤ P_max · u_t
+Discharge:     p_dis_t ≤ P_max · (1 − u_t)
+Import:        g_imp_t ≤ G_max · v_t
+Export:        g_exp_t ≤ G_max · (1 − v_t)
+End of day:    soc_24 ≥ SOC_0
+PV curtailment: curt_t ≤ PV_t
 ```
 
-Note:
+Notes:
 
-1. Senza `u_t` e `v_t` il problema è un LP puro. Le binarie lo rendono un MILP, risolto dal solver con Branch and Cut.
-2. Il vincolo di fine giornata impedisce al modello di svuotare la batteria all'ultima ora.
-3. Estensioni facoltative: costo di degradazione della batteria (termine proporzionale all'energia ciclata), tariffa sulla potenza di picco, generatore diesel con accensione binaria.
+1. Without `u_t` and `v_t` the problem is a pure LP. The binaries make it a MILP, solved by the solver with branch and cut.
+2. The end-of-day constraint stops the model from emptying the battery in the last hour.
+3. Optional extensions: battery degradation cost (a term proportional to the energy cycled), peak-power charge, diesel generator with binary start-up.
 
-**Output:** `docs/formulation.md` completo.
-
----
-
-## Fase 6 — Implementazione dell'ottimizzatore
-
-1. Implementa in `optimize.py` una funzione che riceve previsioni, prezzi, intensità di carbonio, parametri e SOC iniziale, e restituisce il piano orario.
-2. Usa Pyomo (o PuLP) con solver HiGHS.
-3. Prova prima su un singolo giorno con dati inventati di cui conosci la soluzione attesa (es. prezzo basso di notte e alto di sera: deve caricare di notte e scaricare di sera).
-4. Controlla lo stato del solver (ottimo, infeasible) e gestisci gli errori.
-5. Scrivi i test in `tests/`:
-   - il bilancio energetico è rispettato in ogni ora
-   - il SOC resta nei limiti
-   - mai carica e scarica nella stessa ora
-   - con batteria di capacità zero, il risultato coincide col caso senza batteria
-6. Disegna il piano di un giorno: carico, fotovoltaico, scambio con la rete e SOC.
-
-**Output:** `optimize.py` testato, grafico di un giorno tipo.
+**Output:** complete `docs/formulation.md`.
 
 ---
 
-## Fase 7 — Simulazione a orizzonte mobile
+## Phase 6 — Implementation of the optimiser
 
-Qui i due blocchi si uniscono. Per ogni giorno del test set:
+1. Implement in `optimize.py` a function that takes forecasts, prices, carbon intensity, parameters and initial SOC, and returns the hourly plan.
+2. Use Pyomo (or PuLP) with the HiGHS solver.
+3. Try it first on a single day with made-up data whose expected solution you know (e.g. low price at night and high in the evening: it must charge at night and discharge in the evening).
+4. Check the solver status (optimal, infeasible) and handle the errors.
+5. Write the tests in `tests/`:
+   - the energy balance holds in every hour
+   - the SOC stays within its limits
+   - never charging and discharging in the same hour
+   - with a zero-capacity battery, the result matches the no-battery case
+6. Plot the plan of one day: load, PV, grid exchange and SOC.
 
-1. Genera le previsioni di carico e fotovoltaico per il giorno dopo.
-2. Risolvi il MILP con le previsioni e ottieni il piano della batteria.
-3. Applica il piano della batteria ai **dati reali**: la differenza fra previsto e reale viene assorbita dalla rete (compri di più o vendi di meno).
-4. Se il piano non è eseguibile con i dati reali (es. batteria piena prima del previsto), applica una regola di correzione semplice e documentala.
-5. Calcola costo ed emissioni reali del giorno.
-6. Passa il SOC finale come SOC iniziale del giorno successivo.
-
-**Output:** `simulate.py`, serie giornaliera di costi ed emissioni sul test set.
+**Output:** tested `optimize.py`, chart of a typical day.
 
 ---
 
-## Fase 8 — Confronti e analisi
+## Phase 7 — Rolling-horizon simulation
 
-Esegui la stessa simulazione con quattro strategie:
+This is where the two blocks come together. For each day of the test set:
 
-| Strategia | Descrizione |
+1. Generate the load and PV forecasts for the next day.
+2. Solve the MILP with the forecasts and get the battery plan.
+3. Apply the battery plan to the **actual data**: the difference between forecast and reality is absorbed by the grid (you buy more or sell less).
+4. If the plan cannot be executed on the actual data (e.g. battery full earlier than expected), apply a simple correction rule and document it.
+5. Compute the day's actual cost and emissions.
+6. Pass the final SOC on as the initial SOC of the next day.
+
+**Output:** `simulate.py`, daily series of costs and emissions on the test set.
+
+---
+
+## Phase 8 — Comparisons and analysis
+
+Run the same simulation with four strategies:
+
+| Strategy | Description |
 |---|---|
-| Nessuna batteria | Il fotovoltaico copre il carico, il resto va/viene dalla rete |
-| Regola ingenua | Carica quando c'è surplus solare, scarica quando c'è deficit |
-| Previsione + MILP | Il tuo sistema |
-| Previsione perfetta + MILP | Limite superiore: ottimizzazione con i dati reali |
+| No battery | PV covers the load, the rest goes to or comes from the grid |
+| Naive rule | Charge when there is a solar surplus, discharge when there is a deficit |
+| Forecast + MILP | Your system |
+| Perfect forecast + MILP | Upper bound: optimisation on the actual data |
 
-1. Tabella riassuntiva: costo totale, emissioni totali, risparmio percentuale rispetto a "nessuna batteria".
-2. Calcola quanta parte del risparmio teorico (previsione perfetta) il tuo sistema cattura: è la misura del valore della previsione.
-3. **Fronte di Pareto:** ripeti la simulazione variando `λ` e disegna costo vs emissioni.
-4. **Analisi di sensitività:** varia capacità della batteria e potenza del fotovoltaico e osserva come cambia il risparmio.
-5. Guarda i giorni peggiori: quando la previsione sbaglia di più, quanto costa?
+1. Summary table: total cost, total emissions, percentage saving relative to "no battery".
+2. Compute how much of the theoretical saving (perfect forecast) your system captures: it measures the value of the forecast.
+3. **Pareto front:** repeat the simulation varying `λ` and plot cost against emissions.
+4. **Sensitivity analysis:** vary battery capacity and PV power and see how the saving changes.
+5. Look at the worst days: when the forecast is most wrong, how much does it cost?
 
-**Output:** `evaluate.py`, notebook `03_results.ipynb`, grafici finali.
-
----
-
-## Fase 9 — Qualità e riproducibilità
-
-1. `scripts/run_all.py` esegue tutto: download, pulizia, addestramento, simulazione, grafici.
-2. Tutti i parametri stanno in `config/default.yaml`, niente numeri sparsi nel codice.
-3. Fissa i seed casuali.
-4. Aggiungi `ruff` per formattazione e lint.
-5. Configura GitHub Actions: a ogni push esegue lint e test.
-6. Aggiungi docstring alle funzioni pubbliche e type hint.
-7. Verifica la riproducibilità: clona il repo in una cartella nuova e segui il README da zero.
-
-**Output:** badge verde della CI nel README.
+**Output:** `evaluate.py`, notebook `03_results.ipynb`, final charts.
 
 ---
 
-## Fase 10 — README e presentazione
+## Phase 9 — Quality and reproducibility
 
-Struttura del README:
+1. `scripts/run_all.py` runs everything: download, cleaning, training, simulation, charts.
+2. All parameters live in `config/default.yaml`, no numbers scattered through the code.
+3. Fix the random seeds.
+4. Add `ruff` for formatting and linting.
+5. Set up GitHub Actions: lint and tests on every push.
+6. Add docstrings to the public functions, and type hints.
+7. Check reproducibility: clone the repo into a new folder and follow the README from scratch.
 
-1. Titolo e una frase di descrizione.
-2. **Risultato principale in cima:** un grafico e 2–3 numeri (es. "−X% costo, −Y% CO₂ rispetto a nessuna batteria").
-3. Schema del pipeline (dati → previsione → ottimizzazione → simulazione).
-4. Come eseguire: 3–4 comandi.
-5. Dati: fonti, periodo, licenze.
-6. Metodo: sintesi di previsione e formulazione, con link a `docs/formulation.md`.
-7. Risultati: tabella dei confronti, fronte di Pareto, sensitività.
-8. Limiti e semplificazioni dichiarate.
-9. Possibili sviluppi.
-
-Poi:
-
-1. Aggiungi descrizione e topic al repository (`energy`, `optimization`, `milp`, `forecasting`, `machine-learning`).
-2. Fissa il repository in evidenza sul profilo GitHub.
-
-**Output:** repository presentabile.
+**Output:** green CI badge in the README.
 
 ---
 
-## Fase 11 — Estensioni facoltative
+## Phase 10 — README and presentation
 
-1. Dashboard Streamlit: si scelgono taglia della batteria e peso `λ`, si vede il piano risultante.
-2. Previsione probabilistica (quantili) e ottimizzazione stocastica o robusta su più scenari.
-3. Costo di degradazione della batteria nell'obiettivo.
-4. Ricarica di veicoli elettrici come carico spostabile.
-5. Ri-ottimizzazione infragiornaliera ogni ora (controllo predittivo vero e proprio).
+README structure:
+
+1. Title and a one-sentence description.
+2. **Main result at the top:** one chart and 2–3 numbers (e.g. "−X% cost, −Y% CO₂ compared with no battery").
+3. Pipeline diagram (data → forecast → optimisation → simulation).
+4. How to run: 3–4 commands.
+5. Data: sources, period, licences.
+6. Method: summary of forecasting and formulation, with a link to `docs/formulation.md`.
+7. Results: comparison table, Pareto front, sensitivity.
+8. Stated limits and simplifications.
+9. Possible developments.
+
+Then:
+
+1. Add a description and topics to the repository (`energy`, `optimization`, `milp`, `forecasting`, `machine-learning`).
+2. Pin the repository on your GitHub profile.
+
+**Output:** a presentable repository.
 
 ---
 
-## Checklist riassuntiva
+## Phase 11 — Optional extensions
 
-- [x] Fase 0 — Problema e parametri definiti
-- [x] Fase 1 — Repository impostato
-- [x] Fase 2 — Dati scaricabili con uno script
-- [x] Fase 3 — Dataset pulito ed esplorato
-- [x] Fase 4 — Previsione migliore della baseline (fotovoltaico sì, MAE −39%; carico no sul test: MAE +4%, RMSE −10%)
-- [x] Fase 5 — Formulazione scritta
-- [x] Fase 6 — Ottimizzatore implementato e testato
-- [x] Fase 7 — Simulazione a orizzonte mobile
-- [x] Fase 8 — Confronti, Pareto, sensitività
-- [x] Fase 9 — CI, test, riproducibilità
-- [x] Fase 10 — README completo
-- [ ] Fase 11 — Estensioni (facoltative)
+1. Streamlit dashboard: pick the battery size and the weight `λ`, see the resulting plan.
+2. Probabilistic forecasting (quantiles) and stochastic or robust optimisation over several scenarios.
+3. Battery degradation cost in the objective.
+4. Electric-vehicle charging as a shiftable load.
+5. Intraday re-optimisation every hour (true model predictive control).
+
+---
+
+## Summary checklist
+
+- [x] Phase 0 — Problem and parameters defined
+- [x] Phase 1 — Repository set up
+- [x] Phase 2 — Data downloadable with a script
+- [x] Phase 3 — Dataset cleaned and explored
+- [x] Phase 4 — Forecast better than the baseline (PV yes, MAE −39%; load no on the test set: MAE +4%, RMSE −10%)
+- [x] Phase 5 — Formulation written
+- [x] Phase 6 — Optimiser implemented and tested
+- [x] Phase 7 — Rolling-horizon simulation
+- [x] Phase 8 — Comparisons, Pareto, sensitivity
+- [x] Phase 9 — CI, tests, reproducibility
+- [x] Phase 10 — Complete README
+- [ ] Phase 11 — Extensions (optional)

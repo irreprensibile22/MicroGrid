@@ -1,13 +1,13 @@
-"""Esegue l'intero pipeline: download, pulizia, addestramento, simulazione, grafici.
+"""Run the whole pipeline: download, cleaning, training, simulation, charts.
 
-Uso:
+Usage:
 
-    python scripts/run_all.py                  # tutto, saltando i download già presenti
-    python scripts/run_all.py --force-download # riscarica anche i dati grezzi
-    python scripts/run_all.py --no-notebooks   # non riesegue i notebook
+    python scripts/run_all.py                  # everything, skipping downloads already there
+    python scripts/run_all.py --force-download # download the raw data again
+    python scripts/run_all.py --no-notebooks   # do not re-run the notebooks
 
-Ogni passo corrisponde a un comando `python -m microgrid.<modulo>` e si può
-eseguire anche da solo. I parametri sono in `config/default.yaml`.
+Each step matches a `python -m microgrid.<module>` command and can also be run
+on its own. The parameters live in `config/default.yaml`.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ NOTEBOOKS = ("01_exploration.ipynb", "02_forecasting.ipynb", "03_results.ipynb")
 
 
 def run_notebooks() -> None:
-    """Riesegue i notebook sul posto, così grafici e tabelle riflettono i nuovi risultati."""
+    """Re-run the notebooks in place, so charts and tables reflect the new results."""
     for name in NOTEBOOKS:
         path = PROJECT_ROOT / "notebooks" / name
         subprocess.run(
@@ -35,22 +35,25 @@ def run_notebooks() -> None:
 
 
 def main() -> None:
-    """Esegue in ordine tutti i passi del pipeline."""
+    """Run every step of the pipeline in order."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--force-download", action="store_true", help="riscarica anche i dati già presenti")
-    parser.add_argument("--no-notebooks", action="store_true", help="non riesegue i notebook")
+    parser.add_argument("--force-download", action="store_true", help="download the raw data even if present")
+    parser.add_argument("--no-notebooks", action="store_true", help="do not re-run the notebooks")
     args = parser.parse_args()
 
+    # The module `main` functions parse sys.argv themselves: hide our own flags from them.
+    sys.argv = sys.argv[:1]
+
     steps: list[tuple[str, Callable[[], object]]] = [
-        ("Download dei dati", lambda: data.download_all(load_config(), force=args.force_download)),
-        ("Pulizia e dataset", dataset.main),
-        ("Previsione", forecast.main),
-        ("Piano di un giorno di esempio", optimize.main),
-        ("Simulazione a orizzonte mobile", simulate.main),
-        ("Confronto fra strategie", evaluate.main),
+        ("Data download", lambda: data.download_all(load_config(), force=args.force_download)),
+        ("Cleaning and dataset", dataset.main),
+        ("Forecast", forecast.main),
+        ("Plan for an example day", optimize.main),
+        ("Rolling-horizon simulation", simulate.main),
+        ("Strategy comparison", evaluate.main),
     ]
     if not args.no_notebooks:
-        steps.append(("Notebook", run_notebooks))
+        steps.append(("Notebooks", run_notebooks))
 
     start = time.perf_counter()
     for number, (title, step) in enumerate(steps, start=1):
@@ -58,7 +61,7 @@ def main() -> None:
         step_start = time.perf_counter()
         step()
         print(f"--- {title}: {time.perf_counter() - step_start:.0f} s", flush=True)
-    print(f"\nPipeline completato in {(time.perf_counter() - start) / 60:.1f} minuti.")
+    print(f"\nPipeline completed in {(time.perf_counter() - start) / 60:.1f} minutes.")
 
 
 if __name__ == "__main__":

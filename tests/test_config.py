@@ -1,4 +1,4 @@
-"""Controlli di coerenza sul file di configurazione di default."""
+"""Consistency checks on the default configuration file."""
 
 from pathlib import Path
 

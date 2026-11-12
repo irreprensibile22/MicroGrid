@@ -1,18 +1,18 @@
-"""Metriche e confronti fra strategie.
+"""Metrics and comparison between strategies.
 
-Uso:
+Usage:
 
     python -m microgrid.evaluate
 
-Simula tutte le strategie sullo stesso periodo e scrive in `results/`:
+Simulates every strategy over the same period and writes to `results/`:
 
-- `comparison.csv`   costo ed emissioni totali di ogni strategia;
-- `daily_costs.csv`  costo giornaliero di ogni strategia ed errori di previsione;
-- `pareto.csv`       costo ed emissioni al variare del peso `λ`;
-- `sensitivity.csv`  risparmio al variare di batteria, fotovoltaico e oneri;
-- `comparison.png`, `pareto.png`, `sensitivity.png`  i grafici corrispondenti.
+- `comparison.csv`   total cost and emissions of each strategy;
+- `daily_costs.csv`  daily cost of each strategy, plus the forecast errors;
+- `pareto.csv`       cost and emissions as the weight `λ` changes;
+- `sensitivity.csv`  savings as battery, PV and surcharge change;
+- `comparison.png`, `pareto.png`, `sensitivity.png`  the matching charts.
 
-Con `--figures-only` ridisegna i grafici dalle tabelle già salvate.
+With `--figures-only` it just redraws the charts from the saved tables.
 """
 
 from __future__ import annotations
@@ -35,19 +35,19 @@ PARETO_FILE = "pareto.csv"
 SENSITIVITY_FILE = "sensitivity.csv"
 FIGURE_FILES = {"comparison": "comparison.png", "pareto": "pareto.png", "sensitivity": "sensitivity.png"}
 
-# Nome breve -> descrizione. L'ordine è quello delle tabelle e dei grafici.
+# Short name -> description. The order is the one used in tables and charts.
 STRATEGIES = {
-    "no_battery": "Nessuna batteria",
-    "rule": "Regola ingenua",
-    "milp": "Previsione + MILP",
-    "milp_corrected": "Previsione + MILP + correzione",
-    "perfect": "Previsione perfetta + MILP",
+    "no_battery": "No battery",
+    "rule": "Naive rule",
+    "milp": "Forecast + MILP",
+    "milp_corrected": "Forecast + MILP + correction",
+    "perfect": "Perfect forecast + MILP",
 }
-# Variante: come `milp_corrected`, ma con la previsione ingenua del carico.
-VARIANTS = {"milp_corrected_naive_load": "Previsione ingenua del carico + MILP + correzione"}
-# Strategie che dipendono dal peso delle emissioni.
+# Variant: like `milp_corrected`, but with the naive load forecast.
+VARIANTS = {"milp_corrected_naive_load": "Naive load forecast + MILP + correction"}
+# Strategies that depend on the emission weight.
 OPTIMIZED = ("milp", "milp_corrected", "perfect")
-# Parametro della sensitività -> (sezione, chiave) nella configurazione.
+# Sensitivity parameter -> (section, key) in the configuration.
 SENSITIVITY_KEYS = {
     "battery_capacity_kwh": ("battery", "capacity_kwh"),
     "pv_peak_kw": ("pv", "peak_kw"),
@@ -58,7 +58,7 @@ SENSITIVITY_KEYS = {
 def run_strategy(
     name: str, inputs: pd.DataFrame, config: dict[str, Any], carbon_weight: float | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Simula una strategia; restituisce dettaglio orario e serie giornaliera."""
+    """Simulate one strategy; return the hourly detail and the daily series."""
     if name == "no_battery":
         return simulate_rule(inputs, config, use_battery=False)
     if name == "rule":
@@ -71,15 +71,15 @@ def run_strategy(
         return simulate(inputs, config, load_column="load_naive", carbon_weight=carbon_weight, correct=True)
     if name == "perfect":
         return simulate(inputs, config, load_column="load_kw", pv_column="pv_kw", carbon_weight=carbon_weight)
-    raise ValueError(f"Strategia sconosciuta: {name!r}")
+    raise ValueError(f"Unknown strategy: {name!r}")
 
 
 def totals(daily: pd.DataFrame, inputs: pd.DataFrame, config: dict[str, Any]) -> dict[str, float]:
-    """Totali di una simulazione sull'intero periodo.
+    """Totals of a simulation over the whole period.
 
-    `residual_value_eur` è il valore dell'energia in più (o in meno) rimasta
-    in batteria rispetto all'inizio, al prezzo medio di acquisto: serve a
-    confrontare strategie che finiscono con la batteria a livelli diversi.
+    `residual_value_eur` is the value of the extra (or missing) energy left
+    in the battery compared with the start, at the mean buy price. It makes
+    strategies that end at different battery levels comparable.
     """
     battery, limits = config["battery"], battery_limits(config)
     usable = limits["soc_max_kwh"] - limits["soc_min_kwh"]
@@ -98,15 +98,16 @@ def totals(daily: pd.DataFrame, inputs: pd.DataFrame, config: dict[str, Any]) ->
 
 
 def add_savings(table: pd.DataFrame) -> pd.DataFrame:
-    """Aggiunge i risparmi rispetto a `no_battery` e la quota del risparmio teorico.
+    """Add the savings relative to `no_battery` and the share of the theoretical saving.
 
-    `saving_captured` è il risparmio di costo diviso per quello della
-    previsione perfetta: 1 significa che la strategia ottiene tutto ciò che
-    si potrebbe ottenere conoscendo il futuro.
+    `saving_captured` is the cost saving divided by that of the perfect
+    forecast: 1 means the strategy gets everything that could be had by
+    knowing the future.
     """
     table = table.copy()
     baseline, perfect = table.loc["no_battery"], table.loc["perfect"]
     table["cost_saving_eur"] = baseline["cost_eur"] - table["cost_eur"]
+    # abs(): the baseline cost can be negative in sunny periods (net seller).
     table["cost_saving_pct"] = 100 * table["cost_saving_eur"] / abs(baseline["cost_eur"])
     table["emissions_saving_pct"] = 100 * (baseline["emissions_kg"] - table["emissions_kg"]) / baseline["emissions_kg"]
     table["saving_captured"] = table["cost_saving_eur"] / (baseline["cost_eur"] - perfect["cost_eur"])
@@ -116,7 +117,7 @@ def add_savings(table: pd.DataFrame) -> pd.DataFrame:
 def compare(
     inputs: pd.DataFrame, config: dict[str, Any], strategies: tuple[str, ...] = tuple(STRATEGIES)
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Confronta le strategie; restituisce la tabella riassuntiva e i costi giornalieri."""
+    """Compare the strategies; return the summary table and the daily costs."""
     rows, daily_costs = {}, {}
     for name in strategies:
         _, daily = run_strategy(name, inputs, config)
@@ -127,7 +128,7 @@ def compare(
 
 
 def forecast_errors(inputs: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
-    """Errore di previsione di ogni giorno: MAE orario [kW] ed errore sull'energia [kWh]."""
+    """Forecast error of each day: hourly MAE [kW] and energy error [kWh]."""
     step = float(config["time"]["step_hours"])
     days = local_days(inputs.index, config).to_numpy()
     errors = {}
@@ -141,7 +142,7 @@ def forecast_errors(inputs: pd.DataFrame, config: dict[str, Any]) -> pd.DataFram
 
 
 def pareto(inputs: pd.DataFrame, config: dict[str, Any], strategies: tuple[str, ...] = OPTIMIZED) -> pd.DataFrame:
-    """Costo ed emissioni reali al variare del peso `λ` delle emissioni."""
+    """Actual cost and emissions as the emission weight `λ` changes."""
     rows = []
     for weight in config["evaluate"]["pareto_carbon_weights"]:
         for name in strategies:
@@ -160,10 +161,10 @@ def pareto(inputs: pd.DataFrame, config: dict[str, Any], strategies: tuple[str, 
 def with_parameter(
     inputs: pd.DataFrame, config: dict[str, Any], parameter: str, value: float
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Copia di dati e configurazione con un parametro dell'impianto cambiato.
+    """Copy of data and configuration with one plant parameter changed.
 
-    Cambiando la potenza del fotovoltaico, produzione reale e prevista sono
-    riscalate in proporzione.
+    When the PV size changes, actual and forecast output are rescaled in
+    proportion.
     """
     section, key = SENSITIVITY_KEYS[parameter]
     changed = copy.deepcopy(config)
@@ -175,7 +176,7 @@ def with_parameter(
 
 
 def sensitivity(inputs: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
-    """Risultati di ogni strategia cambiando un parametro alla volta."""
+    """Results of every strategy, changing one parameter at a time."""
     frames = []
     for parameter, values in config["evaluate"]["sensitivity"].items():
         for value in values:
@@ -197,15 +198,15 @@ def sensitivity(inputs: pd.DataFrame, config: dict[str, Any]) -> pd.DataFrame:
 
 
 def evaluation_inputs(config: dict[str, Any]) -> pd.DataFrame:
-    """Dati della simulazione più la previsione ingenua del carico, per la variante."""
+    """Simulation inputs plus the naive load forecast, needed by the variant."""
     inputs = simulation_inputs(config, config["simulate"]["split"])
     inputs["load_naive"] = load_forecasts(config).loc[inputs.index, "load_naive"]
     return inputs
 
 
 def save_figures(config: dict[str, Any]) -> None:
-    """Disegna i grafici dei risultati a partire dalle tabelle salvate in `results/`."""
-    # Import locale: matplotlib serve solo qui.
+    """Draw the result charts from the tables saved in `results/`."""
+    # Local import: matplotlib is only needed here.
     from microgrid.plotting import apply_style, plot_comparison, plot_pareto, plot_sensitivity
 
     results_dir = resolve_path(config["paths"]["results"])
@@ -220,9 +221,9 @@ def save_figures(config: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    """Confronta le strategie e salva tabelle e grafici (comando `python -m microgrid.evaluate`)."""
+    """Compare the strategies and save tables and charts (`python -m microgrid.evaluate`)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--figures-only", action="store_true", help="ridisegna i grafici dalle tabelle già salvate")
+    parser.add_argument("--figures-only", action="store_true", help="redraw the charts from the saved tables")
     args = parser.parse_args()
     config = load_config()
     if args.figures_only:

@@ -1,22 +1,22 @@
-"""Previsione di carico e fotovoltaico per il giorno D+1.
+"""Load and PV forecast for day D+1.
 
-Uso:
+Usage:
 
     python -m microgrid.forecast
 
-Per ciascuna delle due grandezze:
+For each of the two targets:
 
-1. sceglie gli iperparametri di LightGBM con una cross-validation a finestre
-   espandibili sui dati di addestramento;
-2. prevede validazione e test riaddestrando il modello ogni
-   `forecast.refit_every_days` giorni con tutte le misure precedenti
-   (gli iperparametri restano quelli scelti al punto 1);
-3. per confronto, prevede gli stessi periodi con un modello statico,
-   addestrato una sola volta prima dell'inizio di ciascun periodo;
-4. confronta ogni previsione con quella ingenua.
+1. pick the LightGBM hyperparameters with an expanding-window
+   cross-validation on the training data;
+2. forecast validation and test, refitting the model every
+   `forecast.refit_every_days` days on all measurements available so far
+   (hyperparameters stay those chosen in step 1);
+3. for comparison, forecast the same periods with a static model, trained
+   once before each period starts;
+4. compare every forecast with the naive one.
 
-Scrive i modelli in `models/`, le previsioni in
-`data/processed/forecasts.parquet` e le metriche in `results/`.
+Writes the models to `models/`, the forecasts to
+`data/processed/forecasts.parquet` and the metrics to `results/`.
 """
 
 from __future__ import annotations
@@ -36,17 +36,24 @@ from microgrid.features import build_features
 FORECAST_FILE = "forecasts.parquet"
 METRICS_FILE = "forecast_metrics.csv"
 PARAMS_FILE = "forecast_params.json"
-# Grandezza da prevedere -> (nome breve, ritardo in ore della previsione ingenua).
+# Target -> (short name, lag in hours of the naive forecast).
 TARGETS = {"load_kw": ("load", 168), "pv_kw": ("pv", 24)}
+NAIVE = "naive"
+STATIC = "LightGBM static"
 
 
-# --- Previsione ingenua e metriche -------------------------------------------
+def refit_label(config: dict[str, Any]) -> str:
+    """Name of the periodically refitted model in tables and charts."""
+    return f"LightGBM refit every {config['forecast']['refit_every_days']} days"
+
+
+# --- Naive forecast and metrics ----------------------------------------------
 
 
 def naive_forecast(series: pd.Series, valid: pd.Series, lag_hours: int) -> pd.Series:
-    """Previsione ingenua: il valore misurato `lag_hours` ore prima.
+    """Naive forecast: the value measured `lag_hours` earlier.
 
-    Manca (NaN) se il valore di partenza appartiene a un giorno non valido.
+    Missing (NaN) if the source value belongs to an invalid day.
     """
     source = series.where(valid)
     values = source.reindex(series.index - pd.Timedelta(hours=lag_hours)).to_numpy()
@@ -54,7 +61,7 @@ def naive_forecast(series: pd.Series, valid: pd.Series, lag_hours: int) -> pd.Se
 
 
 def metrics(actual: pd.Series, predicted: pd.Series) -> dict[str, float]:
-    """MAE, RMSE e MAE normalizzato sulla media dei valori reali."""
+    """MAE, RMSE and MAE normalised by the mean of the actual values."""
     error = predicted - actual
     mae = float(error.abs().mean())
     return {
@@ -64,15 +71,15 @@ def metrics(actual: pd.Series, predicted: pd.Series) -> dict[str, float]:
     }
 
 
-# --- Cross-validation ---------------------------------------------------------
+# --- Cross-validation --------------------------------------------------------
 
 
 def expanding_folds(days: pd.Index, n_folds: int) -> list[tuple[np.ndarray, np.ndarray]]:
-    """Finestre espandibili per giorni interi.
+    """Expanding windows over whole days.
 
-    I giorni sono divisi in `n_folds + 1` blocchi consecutivi. La finestra
-    `i` addestra sui primi `i + 1` blocchi e valida sul blocco successivo:
-    la validazione viene sempre dopo l'addestramento.
+    The days are cut into `n_folds + 1` consecutive blocks. Fold `i` trains on
+    the first `i + 1` blocks and validates on the next one, so validation
+    always comes after training.
     """
     unique_days = np.sort(pd.unique(days))
     blocks = np.array_split(unique_days, n_folds + 1)
@@ -87,6 +94,7 @@ def _lgb_params(config: dict[str, Any], params: dict[str, Any]) -> dict[str, Any
     return {
         **config["forecast"]["base_params"],
         **params,
+        # Fixed seed + deterministic mode: the same data always give the same model.
         "seed": config["seed"],
         "deterministic": True,
         "force_row_wise": True,
@@ -95,10 +103,10 @@ def _lgb_params(config: dict[str, Any], params: dict[str, Any]) -> dict[str, Any
 
 
 def tune(features: pd.DataFrame, target: pd.Series, days: pd.Index, config: dict[str, Any]) -> dict[str, Any]:
-    """Sceglie gli iperparametri con il MAE medio sulle finestre espandibili.
+    """Pick the hyperparameters with the lowest mean MAE over the expanding windows.
 
-    Per ogni combinazione, il numero di alberi è quello a cui l'errore di
-    validazione smette di migliorare, mediato sulle finestre.
+    For each combination, the number of trees is where the validation error
+    stops improving, averaged over the folds.
     """
     settings = config["forecast"]
     folds = expanding_folds(days, settings["cv_folds"])
@@ -125,14 +133,14 @@ def tune(features: pd.DataFrame, target: pd.Series, days: pd.Index, config: dict
 
 
 def fit(features: pd.DataFrame, target: pd.Series, config: dict[str, Any], tuned: dict[str, Any]) -> lgb.Booster:
-    """Addestra un modello con gli iperparametri e il numero di alberi scelti."""
+    """Train a model with the chosen hyperparameters and number of trees."""
     return lgb.train(
         _lgb_params(config, tuned["params"]), lgb.Dataset(features, target), num_boost_round=tuned["rounds"]
     )
 
 
 def predict(model: lgb.Booster, features: pd.DataFrame, upper: float | None = None) -> pd.Series:
-    """Previsione limitata ai valori fisicamente possibili (non negativa, sotto `upper`)."""
+    """Forecast clipped to what is physically possible (non-negative, below `upper`)."""
     values = np.clip(model.predict(features), 0, upper)
     return pd.Series(values, index=features.index)
 
@@ -147,19 +155,19 @@ def walk_forward(
     tuned: dict[str, Any],
     upper: float | None = None,
 ) -> tuple[pd.Series, lgb.Booster]:
-    """Prevede le ore di `predict_mask` riaddestrando il modello a intervalli regolari.
+    """Forecast the hours in `predict_mask`, refitting the model at regular intervals.
 
-    I giorni da prevedere sono divisi in blocchi di
-    `forecast.refit_every_days` giorni. Per ogni blocco il modello è
-    addestrato sulle sole ore utilizzabili (`trainable`) dei giorni
-    precedenti l'inizio del blocco. Restituisce le previsioni e l'ultimo
-    modello addestrato.
+    The days to forecast are cut into blocks of `forecast.refit_every_days`
+    days. For each block the model is trained only on the usable hours
+    (`trainable`) of the days before the block starts. Returns the forecasts
+    and the last model trained.
     """
     step = config["forecast"]["refit_every_days"]
     predict_days = np.sort(pd.unique(days[predict_mask.to_numpy()]))
     forecast = pd.Series(np.nan, index=features.index)
     for start in range(0, len(predict_days), step):
         block_days = predict_days[start : start + step]
+        # Strictly before the block: this is what keeps the walk-forward honest.
         history = (trainable & (days < block_days[0])).to_numpy()
         block = predict_mask.to_numpy() & np.isin(days, block_days)
         model = fit(features[history], target[history], config, tuned)
@@ -167,18 +175,18 @@ def walk_forward(
     return forecast, model
 
 
-# --- Pipeline completo --------------------------------------------------------
+# --- Full pipeline -----------------------------------------------------------
 
 
 def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
-    """Addestra i modelli e restituisce previsioni, metriche e iperparametri scelti.
+    """Train the models and return forecasts, metrics and chosen hyperparameters.
 
-    Colonne delle previsioni, per `load` e `pv`:
+    Forecast columns, for `load` and `pv`:
 
-    - `*_forecast`         modello riaddestrato periodicamente (quello usato dal sistema)
-    - `*_forecast_static`  modello statico: addestrato sul solo addestramento per le
-                           ore di validazione, su addestramento + validazione per il test
-    - `*_naive`            previsione ingenua
+    - `*_forecast`         periodically refitted model (the one the system uses)
+    - `*_forecast_static`  static model: trained on train only for the validation
+                           hours, on train + validation for the test hours
+    - `*_naive`            naive forecast
     """
     config = config or load_config()
     dataset = load_dataset(config)
@@ -190,7 +198,7 @@ def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFram
     forecasts = dataset[["split", "valid_day"]].copy()
     rows, chosen = [], {}
     for target, (name, naive_lag) in TARGETS.items():
-        # Solo il carico ha giorni con misure non attendibili.
+        # Only the load has days with unreliable measurements.
         valid = dataset["valid_day"] if target == "load_kw" else pd.Series(True, index=dataset.index)
         features = build_features(dataset, config, target)
         actual = dataset[target]
@@ -201,7 +209,7 @@ def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFram
 
         tuned = tune(features[train_mask], actual[train_mask], days[train_mask], config)
         chosen[target] = tuned
-        print(f"{target}: {tuned['params']}, {tuned['rounds']} alberi, MAE in CV {tuned['cv_mae']:.3f} kW", flush=True)
+        print(f"{target}: {tuned['params']}, {tuned['rounds']} trees, CV MAE {tuned['cv_mae']:.3f} kW", flush=True)
 
         evaluation = split != "train"
         forecast, last_model = walk_forward(features, actual, trainable, days, evaluation, config, tuned, upper)
@@ -213,7 +221,7 @@ def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFram
             static[split == split_name] = predict(model, features[split == split_name], upper)
         naive = naive_forecast(actual, valid, naive_lag)
         if target == "pv_kw":
-            # Senza irraggiamento previsto non c'è produzione.
+            # No forecast irradiance, no output.
             dark = dataset["radiation_w_m2"] <= 0
             forecast = forecast.mask(dark & forecast.notna(), 0.0)
             static = static.mask(dark & static.notna(), 0.0)
@@ -222,13 +230,9 @@ def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFram
         forecasts[f"{name}_forecast"] = forecast
         forecasts[f"{name}_forecast_static"] = static
         forecasts[f"{name}_naive"] = naive
-        candidates = (
-            ("ingenua", naive),
-            ("LightGBM statico", static),
-            (f"LightGBM riaddestrato ogni {config['forecast']['refit_every_days']} giorni", forecast),
-        )
+        candidates = ((NAIVE, naive), (STATIC, static), (refit_label(config), forecast))
         for split_name in ("validation", "test"):
-            # Confronto sulle stesse ore: quelle in cui esistono tutte le previsioni.
+            # Compare on the same hours: those where every forecast exists.
             rows_mask = (split == split_name) & valid & forecast.notna() & naive.notna()
             for model_name, predicted in candidates:
                 rows.append(
@@ -245,16 +249,16 @@ def run(config: dict[str, Any] | None = None) -> tuple[pd.DataFrame, pd.DataFram
 
 
 def load_forecasts(config: dict[str, Any] | None = None) -> pd.DataFrame:
-    """Legge le previsioni salvate da `python -m microgrid.forecast`."""
+    """Read the forecasts saved by `python -m microgrid.forecast`."""
     config = config or load_config()
     path = resolve_path(config["paths"]["processed"]) / FORECAST_FILE
     if not path.exists():
-        raise FileNotFoundError(f"Manca {path}: esegui prima `python -m microgrid.forecast`.")
+        raise FileNotFoundError(f"Missing {path}: run `python -m microgrid.forecast` first.")
     return pd.read_parquet(path)
 
 
 def main() -> None:
-    """Addestra i modelli e salva previsioni e metriche (comando `python -m microgrid.forecast`)."""
+    """Train the models and save forecasts and metrics (`python -m microgrid.forecast`)."""
     config = load_config()
     forecasts, table, chosen = run(config)
     results_dir = resolve_path(config["paths"]["results"])

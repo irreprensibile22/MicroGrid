@@ -1,4 +1,4 @@
-"""Stile comune dei grafici del progetto."""
+"""Shared chart style for the project."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from microgrid.optimize import Plan
 
-# Ogni grandezza ha sempre lo stesso colore, in tutti i grafici.
+# Each quantity keeps the same colour in every chart.
 COLORS = {
     "load": "#2a78d6",
     "pv": "#eb6834",
@@ -28,7 +28,7 @@ GRID = "#e4e3de"
 
 
 def apply_style() -> None:
-    """Imposta lo stile di matplotlib: linee sottili, griglia e assi discreti."""
+    """Set the matplotlib style: thin lines, quiet grid and axes."""
     mpl.rcParams.update(
         {
             "figure.facecolor": SURFACE,
@@ -60,10 +60,10 @@ def apply_style() -> None:
 
 
 def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
-    """Disegna il piano di un giorno: potenze previste, batteria, rete, stato di carica e prezzi.
+    """Draw the plan of one day: forecast powers, battery, grid, state of charge and prices.
 
-    Ogni pannello ha una sola scala verticale. L'asse orizzontale è l'ora
-    locale del giorno.
+    Each panel has a single vertical scale. The horizontal axis is the local
+    hour of the day.
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -79,35 +79,36 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
     )
     forecast, battery, grid, soc, price = axes
 
+    # Hourly means are drawn as steps; the last value is repeated to close the final hour.
     forecast.step(
         np.arange(hours + 1),
         np.append(schedule["load_kw"], schedule["load_kw"].iloc[-1]),
         where="post",
         color=COLORS["load"],
-        label="Carico",
+        label="Load",
     )
     forecast.step(
         np.arange(hours + 1),
         np.append(schedule["pv_kw"], schedule["pv_kw"].iloc[-1]),
         where="post",
         color=COLORS["pv"],
-        label="Fotovoltaico",
+        label="PV",
     )
-    forecast.set_title("Carico e fotovoltaico previsti [kW]")
+    forecast.set_title("Forecast load and PV [kW]")
     forecast.legend(loc="upper left", ncols=2)
 
     battery.bar(middle, schedule["discharge_kw"] - schedule["charge_kw"], width=0.8, color=COLORS["alt"])
     battery.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
-    battery.set_title("Batteria [kW]: scarica (+), carica (−)")
+    battery.set_title("Battery [kW]: discharge (+), charge (−)")
 
     grid.bar(middle, schedule["grid_import_kw"] - schedule["grid_export_kw"], width=0.8, color=COLORS["muted"])
     grid.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
     curtailed = schedule["curtailment_kw"].sum()
     grid.set_title(
-        "Rete [kW]: acquisto (+), vendita (−)"
-        + (f" — fotovoltaico tagliato: {curtailed:.0f} kWh" if curtailed > 0 else "")
+        "Grid [kW]: import (+), export (−)" + (f" — PV curtailed: {curtailed:.0f} kWh" if curtailed > 0 else "")
     )
 
+    # State of charge is an end-of-hour value, so it has one more point than there are hours.
     soc.plot(
         np.arange(hours + 1),
         np.append(plan.soc_initial_kwh, schedule["soc_kwh"]),
@@ -118,26 +119,26 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
     for fraction in (config["battery"]["soc_min_frac"], config["battery"]["soc_max_frac"]):
         soc.axhline(fraction * capacity, color=TEXT_SECONDARY, linewidth=0.8, linestyle="--")
     soc.set_ylim(0, capacity)
-    soc.set_title("Energia in batteria [kWh], con i limiti minimo e massimo")
+    soc.set_title("Energy in the battery [kWh], with minimum and maximum limits")
 
     price.step(
         np.arange(hours + 1),
         np.append(schedule["buy_price_eur_kwh"], schedule["buy_price_eur_kwh"].iloc[-1]),
         where="post",
         color=COLORS["price"],
-        label="Acquisto",
+        label="Buy",
     )
     price.step(
         np.arange(hours + 1),
         np.append(schedule["sell_price_eur_kwh"], schedule["sell_price_eur_kwh"].iloc[-1]),
         where="post",
         color=COLORS["muted"],
-        label="Vendita",
+        label="Sell",
     )
     price.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
-    price.set_title("Prezzi [EUR/kWh]")
+    price.set_title("Prices [EUR/kWh]")
     price.legend(loc="center left", ncols=2)
-    price.set_xlabel("Ora locale")
+    price.set_xlabel("Local hour")
     price.set_xlim(0, hours)
     price.set_xticks(np.arange(0, hours + 1, 3))
 
@@ -146,9 +147,9 @@ def plot_plan(plan: Plan, config: dict[str, Any], title: str = "") -> Figure:
     return figure
 
 
-# Colore e tratto di ogni strategia, uguali in tutti i grafici dei risultati.
-# I due riferimenti (nessuna batteria e previsione perfetta) sono neutri; le
-# tre strategie realizzabili hanno un colore.
+# Colour and line style of each strategy, the same in every results chart.
+# The two references (no battery, perfect forecast) are neutral; the three
+# strategies that can actually be run get a colour.
 STRATEGY_STYLES = {
     "no_battery": {"color": COLORS["muted"], "linestyle": "-"},
     "rule": {"color": COLORS["pv"], "linestyle": "-"},
@@ -158,13 +159,8 @@ STRATEGY_STYLES = {
 }
 
 
-def _thousands(value: float) -> str:
-    """Numero intero con lo spazio come separatore delle migliaia."""
-    return f"{value:,.0f}".replace(",", " ")
-
-
 def plot_comparison(comparison: pd.DataFrame, labels: dict[str, str]) -> Figure:
-    """Costo totale di ogni strategia di `labels`, con il risparmio rispetto a nessuna batteria."""
+    """Total cost of each strategy in `labels`, with the saving relative to no battery."""
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -173,21 +169,21 @@ def plot_comparison(comparison: pd.DataFrame, labels: dict[str, str]) -> Figure:
     positions = np.arange(len(table))[::-1]
     for position, (name, row) in zip(positions, table.iterrows(), strict=True):
         ax.barh(position, row["cost_eur"], height=0.62, color=STRATEGY_STYLES[name]["color"])
-        saving = "" if name == "no_battery" else f"   −{row['cost_saving_pct']:.1f}%".replace(".", ",")
-        ax.text(row["cost_eur"] + 60, position, f"{_thousands(row['cost_eur'])} €{saving}", va="center", fontsize=9.5)
+        saving = "" if name == "no_battery" else f"   −{row['cost_saving_pct']:.1f}%"
+        ax.text(row["cost_eur"] + 60, position, f"€{row['cost_eur']:,.0f}{saving}", va="center", fontsize=9.5)
     ax.set_yticks(positions, [labels[name] for name in table.index])
     ax.set_xlim(0, table["cost_eur"].max() * 1.22)
-    ax.set_xlabel("costo netto sul test set (€)")
-    ax.set_title("Costo totale per strategia, e risparmio rispetto a nessuna batteria")
+    ax.set_xlabel("net cost over the test set (€)")
+    ax.set_title("Total cost by strategy, and saving relative to no battery")
     ax.grid(axis="y", visible=False)
     return figure
 
 
 def plot_pareto(front: pd.DataFrame, labels: dict[str, str]) -> Figure:
-    """Costo ed emissioni al variare di λ, un pannello per strategia.
+    """Cost and emissions as λ changes, one panel per strategy.
 
-    I pannelli hanno la stessa ampiezza degli assi (400 kgCO2 e 120 EUR),
-    così le curve sono confrontabili anche se lontane fra loro.
+    The curves sit far apart, so each gets its own panel. All panels span the
+    same range (400 kgCO2 and 120 EUR), which keeps the shapes comparable.
     """
     import matplotlib.pyplot as plt
 
@@ -209,11 +205,11 @@ def plot_pareto(front: pd.DataFrame, labels: dict[str, str]) -> Figure:
         y_mid = (curve["cost_eur"].min() + curve["cost_eur"].max()) / 2
         ax.set_xlim(x_mid - 200, x_mid + 200)
         ax.set_ylim(y_mid - 60, y_mid + 60)
-        ax.set_xlabel("emissioni (kgCO₂)")
+        ax.set_xlabel("emissions (kgCO₂)")
         ax.set_title(labels[name], fontsize=10)
-    axes[0].set_ylabel("costo (€)")
+    axes[0].set_ylabel("cost (€)")
     figure.suptitle(
-        "Costo ed emissioni al variare di λ (numeri accanto ai punti, in €/kgCO₂)",
+        "Cost and emissions as λ changes (numbers next to the points, in €/kgCO₂)",
         x=0.01,
         ha="left",
         fontsize=11,
@@ -224,13 +220,13 @@ def plot_pareto(front: pd.DataFrame, labels: dict[str, str]) -> Figure:
 
 
 def plot_sensitivity(sweep: pd.DataFrame, labels: dict[str, str]) -> Figure:
-    """Risparmio rispetto a nessuna batteria cambiando un parametro alla volta."""
+    """Saving relative to no battery, changing one parameter at a time."""
     import matplotlib.pyplot as plt
 
     panels = [
-        ("battery_capacity_kwh", "Capacità della batteria (kWh)"),
-        ("pv_peak_kw", "Potenza del fotovoltaico (kWp)"),
-        ("import_surcharge_eur_kwh", "Oneri sull'acquisto (€/kWh)"),
+        ("battery_capacity_kwh", "Battery capacity (kWh)"),
+        ("pv_peak_kw", "PV peak power (kWp)"),
+        ("import_surcharge_eur_kwh", "Import surcharge (€/kWh)"),
     ]
     names = [name for name in labels if name != "no_battery"]
     figure, axes = plt.subplots(1, len(panels), figsize=(11.5, 4), sharey=True)
@@ -249,10 +245,8 @@ def plot_sensitivity(sweep: pd.DataFrame, labels: dict[str, str]) -> Figure:
         ax.set_xticks(sorted(part["value"].unique()))
         ax.axhline(0, color=TEXT_SECONDARY, linewidth=0.8)
         ax.set_xlabel(title)
-    axes[0].set_ylabel("risparmio rispetto a nessuna batteria (€)")
+    axes[0].set_ylabel("saving relative to no battery (€)")
     axes[0].legend(loc="upper left", fontsize=8)
-    figure.suptitle(
-        "Risparmio al variare di un parametro alla volta", x=0.01, ha="left", fontsize=11, fontweight="bold"
-    )
+    figure.suptitle("Saving when one parameter changes at a time", x=0.01, ha="left", fontsize=11, fontweight="bold")
     figure.tight_layout()
     return figure

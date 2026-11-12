@@ -1,4 +1,4 @@
-"""Test di feature e previsione, con attenzione all'uso di informazioni future."""
+"""Tests of features and forecasting, with a close eye on leakage from the future."""
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ WEATHER_FEATURES = ["temperature_c", "radiation_w_m2", "cloud_cover_pct", "tempe
 
 
 def make_dataset(start: str, days: int, seed: int = 0) -> pd.DataFrame:
-    """Dataset sintetico con le colonne usate dalle feature."""
+    """Synthetic dataset with the columns the features need."""
     timezone = CONFIG["site"]["timezone"]
     first = pd.Timestamp(start, tz=timezone)
     index = pd.date_range(first, first + pd.Timedelta(days=days), freq="h", inclusive="left").tz_convert("UTC")
@@ -36,7 +36,7 @@ def make_dataset(start: str, days: int, seed: int = 0) -> pd.DataFrame:
 def test_day_starts_is_local_midnight():
     index = pd.DatetimeIndex([pd.Timestamp("2016-07-01 21:00", tz="UTC"), pd.Timestamp("2016-07-01 22:00", tz="UTC")])
     starts = day_starts(index, CONFIG)
-    # D'estate la mezzanotte di Costanza è alle 22:00 UTC del giorno prima.
+    # In summer, midnight in Konstanz is 22:00 UTC of the day before.
     assert starts[0] == pd.Timestamp("2016-06-30 22:00", tz="UTC")
     assert starts[1] == pd.Timestamp("2016-07-01 22:00", tz="UTC")
 
@@ -46,7 +46,7 @@ def test_calendar_features_mark_weekends_and_holidays():
         [pd.Timestamp(day + " 12:00", tz="Europe/Berlin") for day in ("2016-01-06", "2016-01-07", "2016-01-09")]
     ).tz_convert("UTC")
     features = calendar_features(index, CONFIG)
-    # Il 6 gennaio è festivo nel Baden-Württemberg; il 9 gennaio 2016 è un sabato.
+    # 6 January is a public holiday in Baden-Württemberg; 9 January 2016 is a Saturday.
     assert features["is_holiday"].tolist() == [1, 0, 0]
     assert features["is_weekend"].tolist() == [0, 0, 1]
     assert features["hour"].tolist() == [12, 12, 12]
@@ -54,7 +54,7 @@ def test_calendar_features_mark_weekends_and_holidays():
 
 
 def test_lag_features_never_use_values_measured_after_issue_time():
-    # Il 30 ottobre 2016 ha 25 ore: la sua ultima ora dista 24 ore dalla prima.
+    # 30 October 2016 has 25 hours: its last hour is 24 hours after its first.
     dataset = make_dataset("2016-10-28", 5)
     index = dataset.index
     issue_time = day_starts(index, CONFIG)
@@ -63,7 +63,7 @@ def test_lag_features_never_use_values_measured_after_issue_time():
     assert long_day.sum() == 25
     assert lags.loc[long_day, "lag_24h"].isna().sum() == 1
     assert np.isnan(lags.loc[long_day, "lag_24h"].iloc[-1])
-    # In un giorno normale il ritardo di 24 ore è il valore del giorno prima.
+    # On a normal day the 24-hour lag is simply yesterday's value.
     position = 30
     assert lags["lag_24h"].iloc[position] == dataset["load_kw"].iloc[position - 24]
 
@@ -77,7 +77,7 @@ def test_lag_and_history_features_skip_invalid_days():
     next_day = days == pd.Timestamp("2016-05-04")
     assert lags.loc[next_day, "lag_24h"].isna().all()
     assert history.loc[next_day, "mean_previous_day"].isna().all()
-    # Il 5 maggio usa il 4, che è valido.
+    # 5 May uses 4 May, which is valid.
     following = days == pd.Timestamp("2016-05-05")
     expected = dataset.loc[next_day, "load_kw"].mean()
     assert history.loc[following, "mean_previous_day"].to_numpy() == pytest.approx(expected)
@@ -93,7 +93,7 @@ def test_features_of_a_day_do_not_depend_on_that_day_or_later(target):
     before = build_features(dataset, CONFIG, target)
     after = build_features(changed, CONFIG, target)
     pd.testing.assert_frame_equal(before[days == day], after[days == day])
-    # Controprova: modificare il giorno precedente cambia le feature.
+    # Sanity check the other way round: changing the day before does change the features.
     changed = dataset.copy()
     changed.loc[days == day - pd.Timedelta(days=1), target] += 1000.0
     assert not build_features(changed, CONFIG, target)[days == day].equals(before[days == day])
@@ -146,6 +146,7 @@ def test_walk_forward_trains_only_on_days_before_each_block(monkeypatch):
         def predict(self, rows):
             return np.full(len(rows), self.value)
 
+    # Replace the real training with a stub that records the last day it was given.
     def fake_fit(train_features, train_target, config, tuned):
         seen.append(local_days(train_features.index, CONFIG).max())
         return ConstantModel(train_target.mean())
@@ -153,7 +154,7 @@ def test_walk_forward_trains_only_on_days_before_each_block(monkeypatch):
     monkeypatch.setattr(forecast, "fit", fake_fit)
     config = {**CONFIG, "forecast": {**CONFIG["forecast"], "refit_every_days": 4}}
     predicted, _ = walk_forward(features, target, trainable, days, predict_mask, config, tuned={})
-    # 10 giorni da prevedere a blocchi di 4: tre addestramenti, ognuno fermo al giorno prima del blocco.
+    # 10 days to forecast in blocks of 4: three fits, each stopping the day before its block.
     assert seen == [pd.Timestamp("2016-03-20"), pd.Timestamp("2016-03-24"), pd.Timestamp("2016-03-28")]
     assert predicted[predict_mask].notna().all()
     assert predicted[~predict_mask].isna().all()

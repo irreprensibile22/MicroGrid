@@ -1,4 +1,4 @@
-"""Test delle funzioni di conversione dei dati grezzi (senza accesso alla rete)."""
+"""Tests of the raw-data parsing functions (no network access)."""
 
 import pandas as pd
 import pytest
@@ -28,7 +28,7 @@ def test_parse_pvgis_normalises_power_and_floors_timestamps():
         pd.Timestamp("2016-01-01 11:00", tz="UTC"),
         pd.Timestamp("2016-01-01 12:00", tz="UTC"),
     ]
-    # 500 W prodotti da 2 kWp sono 0,25 kW per kWp.
+    # 500 W from 2 kWp is 0.25 kW per kWp.
     assert out["pv_kw_per_kwp"].tolist() == [0.25, 0.5]
 
 
@@ -62,8 +62,8 @@ def test_carbon_intensity_is_power_weighted_mean():
     }
     generation = parse_generation(payload)
     intensity = carbon_intensity(generation, {"Fossil gas": 500.0, "Wind onshore": 10.0})
-    # Ora 0: metà gas e metà vento. Ora 1: solo vento.
-    # Ora 2: la produzione negativa vale zero, resta solo il gas.
+    # Hour 0: half gas, half wind. Hour 1: wind only.
+    # Hour 2: negative generation counts as zero, so only gas is left.
     assert intensity.tolist() == pytest.approx([255.0, 10.0, 500.0])
 
 
@@ -78,5 +78,5 @@ def test_configured_households_have_an_import_column():
     assert households
     for household in households:
         assert "import" in household
-        # Il consumo dietro il contatore si ricostruisce solo con entrambe le colonne.
+        # Consumption behind the meter can only be rebuilt with both columns.
         assert ("pv" in household) == ("export" in household)

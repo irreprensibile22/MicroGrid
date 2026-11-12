@@ -1,4 +1,4 @@
-"""Test delle operazioni di pulizia (senza file di dati)."""
+"""Tests of the cleaning steps (no data files needed)."""
 
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ def test_fill_short_gaps_interpolates_only_short_gaps():
 def test_meter_to_power_assigns_energy_to_start_of_hour():
     readings = pd.Series([10.0, 12.0, 12.5], index=hours("2016-01-01 00:00", 3))
     power = meter_to_power(readings)
-    # 2 kWh fra le 00:00 e le 01:00 sono 2 kW nell'ora che inizia alle 00:00.
+    # 2 kWh between 00:00 and 01:00 is 2 kW in the hour starting at 00:00.
     assert power.index.tolist() == hours("2016-01-01 00:00", 2).tolist()
     assert power.tolist() == [2.0, 0.5]
 
@@ -54,7 +54,7 @@ def test_provider_interpolated_matches_whole_column_names():
 
 def test_smoothed_hours_flags_only_long_interpolated_runs():
     index = hours("2016-01-01 00:00", 10)
-    # Due letture interpolate consecutive (ore 3 e 4) spalmano l'energia su 3 ore: 2, 3, 4.
+    # Two consecutive interpolated readings (hours 3 and 4) spread the energy over 3 hours: 2, 3, 4.
     interpolated = pd.Series(False, index=index)
     interpolated.iloc[[3, 4]] = True
     assert smoothed_hours(interpolated, max_gap=3).sum() == 0
@@ -67,7 +67,7 @@ def test_study_index_follows_local_days_across_dst_changes():
     index = study_index(config)
     assert index[0] == pd.Timestamp("2016-03-25 23:00", tz="UTC")
     per_day = pd.Series(1, index=local_days(index, config)).groupby(level=0).sum()
-    # Il 27 marzo 2016 inizia l'ora legale: il giorno ha 23 ore.
+    # Summer time starts on 27 March 2016: that day has 23 hours.
     assert per_day.tolist() == [24, 23, 24]
 
 
@@ -97,7 +97,7 @@ def test_build_load_reconstructs_consumption_behind_the_meter():
         "load": {"households": [{"import": "a_import"}, {"import": "b_import", "pv": "b_pv", "export": "b_export"}]},
     }
     load = build_load(raw, config, index)
-    # Utenza b: prelievo + produzione − immissione = [0, 1, 2, 1]; utenza a: 1 kW costante.
+    # Household b: import + PV − export = [0, 1, 2, 1]; household a: a constant 1 kW.
     assert load["load_kw"].tolist() == [1.0, 2.0, 3.0, 2.0]
     assert not load["load_gap"].any()
 
@@ -120,7 +120,7 @@ def test_build_weather_moves_radiation_to_start_of_hour():
         index=raw_index,
     )
     weather = build_weather(raw, raw_index[:2])
-    # La radiazione indicata alle 11:00 è la media fra le 10:00 e le 11:00.
+    # The radiation stamped 11:00 is the mean between 10:00 and 11:00.
     assert weather["radiation_w_m2"].tolist() == [200.0, 300.0]
     assert weather["temperature_c"].tolist() == [15.0, 16.0]
 

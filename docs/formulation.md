@@ -1,154 +1,154 @@
-# Formulazione matematica
+# Mathematical formulation
 
-Modello di ottimizzazione che decide, per ogni ora del giorno D+1, quanto caricare o scaricare la batteria e quanto scambiare con la rete. È un problema di programmazione lineare mista intera (MILP), risolto una volta al giorno.
+Optimisation model that decides, for each hour of day D+1, how much to charge or discharge the battery and how much to exchange with the grid. It is a mixed-integer linear program (MILP), solved once a day.
 
-I valori dei parametri sono in [`config/default.yaml`](../config/default.yaml); la chiave corrispondente è indicata accanto a ogni simbolo.
+Parameter values are in [`config/default.yaml`](../config/default.yaml); the matching key is given next to each symbol.
 
-## 1. Insiemi
+## 1. Sets
 
-| Simbolo | Significato |
+| Symbol | Meaning |
 |---|---|
-| $\mathcal{T} = \{1, \dots, T\}$ | Ore del giorno locale D+1. $T = 24$, tranne nei giorni del cambio dell'ora ($T = 23$ o $T = 25$). |
+| $\mathcal{T} = \{1, \dots, T\}$ | Hours of local day D+1. $T = 24$, except on the days of the clock change ($T = 23$ or $T = 25$). |
 
-L'ora $t$ è l'intervallo di durata $\Delta t = 1\ \text{h}$ (`time.step_hours`) che finisce all'istante $t$. Le potenze sono medie sull'intervallo; lo stato di carica $soc_t$ è riferito alla fine dell'intervallo.
+Hour $t$ is the interval of length $\Delta t = 1\ \text{h}$ (`time.step_hours`) that ends at instant $t$. Powers are means over the interval; the state of charge $soc_t$ refers to the end of the interval.
 
-## 2. Parametri
+## 2. Parameters
 
-### Serie orarie
+### Hourly series
 
-| Simbolo | Unità | Significato | Origine |
+| Symbol | Unit | Meaning | Source |
 |---|---|---|---|
-| $L_t$ | kW | Carico previsto | `load_forecast` |
-| $PV_t$ | kW | Produzione fotovoltaica prevista | `pv_forecast` |
-| $\pi_t$ | €/kWh | Prezzo day-ahead | `price_eur_kwh` |
-| $e_t$ | kgCO₂/kWh | Intensità di carbonio della rete | `carbon_kg_kwh` |
+| $L_t$ | kW | Forecast load | `load_forecast` |
+| $PV_t$ | kW | Forecast PV output | `pv_forecast` |
+| $\pi_t$ | €/kWh | Day-ahead price | `price_eur_kwh` |
+| $e_t$ | kgCO₂/kWh | Grid carbon intensity | `carbon_kg_kwh` |
 
-Prezzo e intensità di carbonio del giorno D+1 sono considerati noti al momento della decisione (vedi [Ipotesi](#7-ipotesi-e-limiti)).
+Price and carbon intensity of day D+1 are taken as known when the decision is made (see [Assumptions](#7-assumptions-and-limits)).
 
-### Prezzi di scambio
+### Exchange prices
 
-| Simbolo | Unità | Definizione | Chiave |
+| Symbol | Unit | Definition | Key |
 |---|---|---|---|
-| $\tau$ | €/kWh | Oneri, tasse e costi di rete sull'energia acquistata | `grid.import_surcharge_eur_kwh` |
-| $c_t$ | €/kWh | Prezzo di acquisto: $c_t = \pi_t + \tau$ | — |
-| $s_t$ | €/kWh | Prezzo di vendita: $s_t = \pi_t$ | — |
+| $\tau$ | €/kWh | Levies, taxes and network charges on imported energy | `grid.import_surcharge_eur_kwh` |
+| $c_t$ | €/kWh | Buy price: $c_t = \pi_t + \tau$ | — |
+| $s_t$ | €/kWh | Sell price: $s_t = \pi_t$ | — |
 
-Poiché $\tau \ge 0$, vale sempre $s_t \le c_t$: comprare e rivendere nella stessa ora non conviene mai. Il prezzo di vendita può essere negativo: in quelle ore vendere costa.
+Since $\tau \ge 0$, we always have $s_t \le c_t$: buying and selling back in the same hour never pays. The sell price can be negative: in those hours selling costs money.
 
-### Impianto
+### Plant
 
-| Simbolo | Unità | Significato | Chiave |
+| Symbol | Unit | Meaning | Key |
 |---|---|---|---|
-| $E^{max}$ | kWh | Capacità della batteria | `battery.capacity_kwh` |
-| $P^{max}$ | kW | Potenza massima di carica e di scarica | `battery.max_power_kw` |
-| $\eta_c,\ \eta_d$ | — | Rendimenti di carica e di scarica | `battery.eta_charge`, `battery.eta_discharge` |
-| $SOC^{min},\ SOC^{max}$ | kWh | Limiti dello stato di carica: frazione di $E^{max}$ | `battery.soc_min_frac`, `battery.soc_max_frac` |
-| $SOC_0$ | kWh | Energia in batteria all'inizio del giorno | vedi sotto |
-| $G^{max}$ | kW | Potenza massima scambiabile con la rete | `grid.max_power_kw` |
-| $\lambda$ | €/kgCO₂ | Peso delle emissioni nell'obiettivo | `objective.carbon_weight_eur_kg` |
+| $E^{max}$ | kWh | Battery capacity | `battery.capacity_kwh` |
+| $P^{max}$ | kW | Maximum charge and discharge power | `battery.max_power_kw` |
+| $\eta_c,\ \eta_d$ | — | Charge and discharge efficiencies | `battery.eta_charge`, `battery.eta_discharge` |
+| $SOC^{min},\ SOC^{max}$ | kWh | State-of-charge limits: a fraction of $E^{max}$ | `battery.soc_min_frac`, `battery.soc_max_frac` |
+| $SOC_0$ | kWh | Energy in the battery at the start of the day | see below |
+| $G^{max}$ | kW | Maximum power exchanged with the grid | `grid.max_power_kw` |
+| $\lambda$ | €/kgCO₂ | Weight of emissions in the objective | `objective.carbon_weight_eur_kg` |
 
-$SOC_0$ vale `battery.soc_initial_frac` $\cdot E^{max}$ il primo giorno della simulazione; nei giorni successivi è l'energia realmente rimasta in batteria alla fine del giorno precedente.
+$SOC_0$ is `battery.soc_initial_frac` $\cdot E^{max}$ on the first day of the simulation; on the following days it is the energy actually left in the battery at the end of the previous day.
 
-## 3. Variabili
+## 3. Variables
 
-| Simbolo | Dominio | Unità | Significato |
+| Symbol | Domain | Unit | Meaning |
 |---|---|---|---|
-| $p^{ch}_t$ | $\ge 0$ | kW | Potenza di carica della batteria |
-| $p^{dis}_t$ | $\ge 0$ | kW | Potenza di scarica della batteria |
-| $g^{imp}_t$ | $\ge 0$ | kW | Potenza acquistata dalla rete |
-| $g^{exp}_t$ | $\ge 0$ | kW | Potenza venduta alla rete |
-| $curt_t$ | $\ge 0$ | kW | Produzione fotovoltaica non utilizzata |
-| $soc_t$ | $\in \mathbb{R}$ | kWh | Energia in batteria alla fine dell'ora $t$ |
-| $u_t$ | $\{0, 1\}$ | — | 1 se la batteria può caricare, 0 se può scaricare |
-| $v_t$ | $\{0, 1\}$ | — | 1 se si può acquistare, 0 se si può vendere |
+| $p^{ch}_t$ | $\ge 0$ | kW | Battery charging power |
+| $p^{dis}_t$ | $\ge 0$ | kW | Battery discharging power |
+| $g^{imp}_t$ | $\ge 0$ | kW | Power bought from the grid |
+| $g^{exp}_t$ | $\ge 0$ | kW | Power sold to the grid |
+| $curt_t$ | $\ge 0$ | kW | Curtailed PV output |
+| $soc_t$ | $\in \mathbb{R}$ | kWh | Energy in the battery at the end of hour $t$ |
+| $u_t$ | $\{0, 1\}$ | — | 1 if the battery may charge, 0 if it may discharge |
+| $v_t$ | $\{0, 1\}$ | — | 1 if we may buy, 0 if we may sell |
 
-Le potenze di carica e scarica sono misurate sul lato dell'impianto: $p^{ch}_t$ è la potenza assorbita dalla batteria, $p^{dis}_t$ quella che la batteria restituisce. Le perdite sono nella dinamica dello stato di carica.
+Charge and discharge powers are measured on the plant side: $p^{ch}_t$ is the power the battery draws, $p^{dis}_t$ the power it gives back. Losses are in the state-of-charge dynamics.
 
-Con $T = 24$ il modello ha 144 variabili continue e 48 binarie.
+With $T = 24$ the model has 144 continuous variables and 48 binaries.
 
-## 4. Funzione obiettivo
+## 4. Objective function
 
 $$
-\min \ \sum_{t \in \mathcal{T}} \Big[ \underbrace{c_t \, g^{imp}_t - s_t \, g^{exp}_t}_{\text{costo netto}} + \lambda \, \underbrace{e_t \, g^{imp}_t}_{\text{emissioni}} \Big] \, \Delta t
+\min \ \sum_{t \in \mathcal{T}} \Big[ \underbrace{c_t \, g^{imp}_t - s_t \, g^{exp}_t}_{\text{net cost}} + \lambda \, \underbrace{e_t \, g^{imp}_t}_{\text{emissions}} \Big] \, \Delta t
 $$
 
-Il primo termine è il costo netto dell'energia scambiata con la rete [€]. Il secondo sono le emissioni dell'energia acquistata [kgCO₂], convertite in euro dal peso $\lambda$. L'energia venduta non riceve alcun credito di emissioni.
+The first term is the net cost of the energy exchanged with the grid [€]. The second is the emissions of the imported energy [kgCO₂], converted into euros by the weight $\lambda$. Exported energy earns no emission credit.
 
-Con $\lambda = 0$ si minimizza il solo costo. Aumentando $\lambda$ il piano sposta gli acquisti verso le ore in cui la rete è più pulita: la sequenza delle soluzioni al variare di $\lambda$ è il fronte di Pareto costo–emissioni.
+With $\lambda = 0$ only cost is minimised. As $\lambda$ grows the plan moves purchases towards the hours when the grid is cleaner: the sequence of solutions as $\lambda$ changes is the cost–emissions Pareto front.
 
-## 5. Vincoli
+## 5. Constraints
 
-Tutti valgono per ogni $t \in \mathcal{T}$, salvo dove indicato. Nella (2), per $t = 1$ il termine $soc_{t-1}$ è il parametro $SOC_0$.
+All hold for every $t \in \mathcal{T}$, unless stated otherwise. In (2), for $t = 1$ the term $soc_{t-1}$ is the parameter $SOC_0$.
 
-**(1) Bilancio di potenza.** Ciò che entra nel nodo dell'impianto è uguale a ciò che esce.
+**(1) Power balance.** What enters the plant node equals what leaves it.
 
 $$
 PV_t - curt_t + p^{dis}_t + g^{imp}_t = L_t + p^{ch}_t + g^{exp}_t
 $$
 
-**(2) Dinamica dello stato di carica.**
+**(2) State-of-charge dynamics.**
 
 $$
 soc_t = soc_{t-1} + \eta_c \, p^{ch}_t \, \Delta t - \frac{p^{dis}_t \, \Delta t}{\eta_d}
 $$
 
-**(3) Limiti dello stato di carica.**
+**(3) State-of-charge limits.**
 
 $$
 SOC^{min} \le soc_t \le SOC^{max}
 $$
 
-**(4) Carica e scarica non simultanee.**
+**(4) No simultaneous charging and discharging.**
 
 $$
 p^{ch}_t \le P^{max} \, u_t \qquad\qquad p^{dis}_t \le P^{max} \, (1 - u_t)
 $$
 
-**(5) Acquisto e vendita non simultanei.**
+**(5) No simultaneous buying and selling.**
 
 $$
 g^{imp}_t \le G^{max} \, v_t \qquad\qquad g^{exp}_t \le G^{max} \, (1 - v_t)
 $$
 
-**(6) Taglio del fotovoltaico.** Non si può tagliare più di quanto si produce.
+**(6) PV curtailment.** We cannot curtail more than is produced.
 
 $$
 curt_t \le PV_t
 $$
 
-**(7) Fine giornata.** La batteria non può finire il giorno più scarica di come l'ha iniziato.
+**(7) End of day.** The battery may not end the day emptier than it started.
 
 $$
 soc_T \ge SOC_0
 $$
 
-## 6. Proprietà
+## 6. Properties
 
-**Il modello ha sempre soluzione** se $SOC^{min} \le SOC_0 \le SOC^{max}$ e $L_t \le G^{max}$ per ogni $t$. Basta non usare la batteria: se $PV_t < L_t$ si acquista la differenza, altrimenti il surplus si vende fino a $G^{max}$ e il resto si taglia. Nei dati il carico non supera 50 kW e $G^{max} = 100$ kW.
+**The model always has a solution** if $SOC^{min} \le SOC_0 \le SOC^{max}$ and $L_t \le G^{max}$ for every $t$. Simply leave the battery idle: if $PV_t < L_t$ buy the difference, otherwise sell the surplus up to $G^{max}$ and curtail the rest. In the data the load never exceeds 50 kW and $G^{max} = 100$ kW.
 
-**I coefficienti dei vincoli (4) e (5) sono i più stretti possibili.** $P^{max}$ e $G^{max}$ sono già i limiti fisici delle variabili: non servono costanti "big-M" arbitrarie, e il rilassamento lineare è forte.
+**The coefficients in constraints (4) and (5) are as tight as they can be.** $P^{max}$ and $G^{max}$ are already the physical limits of the variables: no arbitrary "big-M" constants are needed, and the linear relaxation is strong.
 
-**A cosa servono le variabili binarie.** Senza $u_t$ e $v_t$ il problema è un programma lineare (LP). Le binarie cambiano la soluzione solo quando sprecare energia conviene:
+**What the binary variables are for.** Without $u_t$ and $v_t$ the problem is a linear program (LP). The binaries change the solution only when wasting energy pays:
 
-- *Carica e scarica simultanee* dissipano energia per via dei rendimenti. Togliendo $\delta$ dalla carica e $\eta_c \eta_d \, \delta$ dalla scarica lo stato di carica non cambia e si libera la potenza $(1 - \eta_c \eta_d)\,\delta > 0$, che riduce l'acquisto o aumenta il taglio. Se $c_t + \lambda e_t \ge 0$ il costo non peggiora: lo spreco non conviene mai. Se invece $c_t + \lambda e_t < 0$, acquistare è pagato e il programma lineare caricherebbe e scaricherebbe insieme per consumare di più: il vincolo (4) lo impedisce.
-- *Acquisto e vendita simultanei* di una potenza $\delta$ costano $(c_t + \lambda e_t - s_t)\,\delta = (\tau + \lambda e_t)\,\delta \ge 0$. Non convengono mai; con $\tau = 0$ e $\lambda = 0$ sono indifferenti, e il vincolo (5) esclude le soluzioni fisicamente prive di senso.
+- *Simultaneous charging and discharging* dissipates energy through the efficiencies. Removing $\delta$ from the charge and $\eta_c \eta_d \, \delta$ from the discharge leaves the state of charge unchanged and frees the power $(1 - \eta_c \eta_d)\,\delta > 0$, which reduces the import or increases the curtailment. If $c_t + \lambda e_t \ge 0$ the cost does not get worse: waste never pays. If instead $c_t + \lambda e_t < 0$, we are paid to import and the linear program would charge and discharge at once to consume more: constraint (4) prevents it.
+- *Simultaneous buying and selling* of a power $\delta$ costs $(c_t + \lambda e_t - s_t)\,\delta = (\tau + \lambda e_t)\,\delta \ge 0$. It never pays; with $\tau = 0$ and $\lambda = 0$ it makes no difference, and constraint (5) rules out physically meaningless solutions.
 
-Con i parametri di default ($\tau = 0{,}20$ €/kWh) il prezzo di acquisto è sempre positivo: il prezzo day-ahead più basso del periodo è −0,13 €/kWh. Il valore ottimo del MILP coincide quindi con quello del rilassamento lineare. Le binarie restano nel modello perché garantiscono un piano eseguibile per qualunque scelta di $\tau$ e $\lambda$, anche nell'analisi di sensitività.
+With the default parameters ($\tau = 0.20$ €/kWh) the buy price is always positive: the lowest day-ahead price in the period is −0.13 €/kWh. So the optimal value of the MILP equals that of its linear relaxation. The binaries stay in the model because they guarantee an executable plan for any choice of $\tau$ and $\lambda$, including in the sensitivity analysis.
 
-**Il vincolo (7) evita l'effetto di fine orizzonte.** Senza di esso il modello svuoterebbe la batteria nell'ultima ora, perché l'energia rimasta non ha valore nell'obiettivo. Il vincolo usa $SOC_0$ del giorno stesso: è sempre soddisfacibile, qualunque sia lo stato in cui la batteria arriva.
+**Constraint (7) avoids the end-of-horizon effect.** Without it the model would empty the battery in the last hour, because leftover energy has no value in the objective. The constraint uses the $SOC_0$ of the same day: it can always be met, whatever state the battery arrives in.
 
-## 7. Ipotesi e limiti
+## 7. Assumptions and limits
 
-- **Prezzi noti.** I prezzi day-ahead di D+1 sono pubblicati verso le 12:45 del giorno D: alla mezzanotte, quando si decide, sono noti. L'intensità di carbonio di D+1 invece non lo è: si usa il valore reale, come se fosse una previsione perfetta. I risultati sulle emissioni sono quindi ottimistici.
-- **Tariffa semplificata.** Il prezzo di acquisto è il prezzo day-ahead più un onere fisso $\tau$; quello di vendita è il prezzo day-ahead. Non ci sono tariffe sulla potenza di picco né incentivi all'immissione. Il valore di $\tau$ è un'ipotesi: determina quanto vale l'autoconsumo rispetto all'arbitraggio sui prezzi, e va variato nell'analisi di sensitività.
-- **Batteria ideale.** Rendimenti costanti, nessuna autoscarica, nessun costo di degradazione, potenza massima indipendente dallo stato di carica.
-- **Orizzonte di un giorno.** Il piano non vede oltre la mezzanotte. Il vincolo (7) obbliga a chiudere ogni giorno almeno al livello di partenza: l'energia accumulata non può essere trasferita al giorno dopo in quantità inferiore a $SOC_0$, anche quando converrebbe.
-- **Modello deterministico.** Le previsioni sono trattate come certe. Gli scostamenti fra previsto e reale sono assorbiti dalla rete durante la simulazione (Fase 7), non dal modello.
-- **Bilancio di sola potenza attiva**, su un unico nodo: nessuna rete interna, nessuna perdita di linea.
+- **Known prices.** Day-ahead prices for D+1 are published around 12:45 on day D: at midnight, when the decision is made, they are known. The carbon intensity of D+1 is not: the actual value is used, as if it were a perfect forecast. Emission results are therefore optimistic.
+- **Simplified tariff.** The buy price is the day-ahead price plus a fixed surcharge $\tau$; the sell price is the day-ahead price. There are no peak-power charges and no feed-in incentives. The value of $\tau$ is an assumption: it sets how much self-consumption is worth compared with price arbitrage, and it is varied in the sensitivity analysis.
+- **Ideal battery.** Constant efficiencies, no self-discharge, no degradation cost, maximum power independent of the state of charge.
+- **One-day horizon.** The plan does not look past midnight. Constraint (7) forces every day to close at least at its starting level: stored energy cannot be carried into the next day below $SOC_0$, even when that would pay.
+- **Deterministic model.** Forecasts are treated as certain. Deviations between forecast and reality are handled during the simulation, not by the model.
+- **Active power only**, on a single node: no internal network, no line losses.
 
-## 8. Estensioni possibili
+## 8. Possible extensions
 
-- Costo di degradazione: termine $\gamma \, (p^{ch}_t + p^{dis}_t) \, \Delta t$ nell'obiettivo.
-- Tariffa sulla potenza di picco: variabile $g^{peak} \ge g^{imp}_t$ con un costo nell'obiettivo.
-- Valore dell'energia residua al posto del vincolo (7): termine $-\,\omega \, soc_T$ nell'obiettivo.
-- Orizzonte di 48 ore, applicando solo le prime 24.
+- Degradation cost: a term $\gamma \, (p^{ch}_t + p^{dis}_t) \, \Delta t$ in the objective.
+- Peak-power charge: a variable $g^{peak} \ge g^{imp}_t$ with a cost in the objective.
+- Value of leftover energy instead of constraint (7): a term $-\,\omega \, soc_T$ in the objective.
+- 48-hour horizon, applying only the first 24 hours.

@@ -1,11 +1,11 @@
-"""Modello MILP per il piano orario di batteria e rete.
+"""MILP model for the hourly battery and grid schedule.
 
-Uso:
+Usage:
 
-    python -m microgrid.optimize    # risolve il giorno di esempio e ne disegna il piano
+    python -m microgrid.optimize    # solve the example day and plot its plan
 
-La formulazione è descritta in `docs/formulation.md`: i commenti qui sotto
-riportano fra parentesi il numero che ogni vincolo ha in quel documento.
+The formulation is described in `docs/formulation.md`. The numbers in
+brackets in the comments below are the constraint numbers used there.
 """
 
 from __future__ import annotations
@@ -22,9 +22,9 @@ from pyomo.contrib.solver.common.results import SolutionStatus
 from microgrid.config import load_config, resolve_path
 
 EXAMPLE_FILE = "optimize_example.png"
-# Sotto questa soglia un valore restituito dal solver è considerato zero.
+# Solver values smaller than this are treated as zero.
 ZERO_TOLERANCE = 1e-7
-# Colonna del piano -> nome della variabile nel modello.
+# Schedule column -> name of the variable in the model.
 SCHEDULE_VARIABLES = {
     "charge_kw": "p_ch",
     "discharge_kw": "p_dis",
@@ -36,17 +36,17 @@ SCHEDULE_VARIABLES = {
 
 
 class OptimizationError(RuntimeError):
-    """Il solver non ha trovato una soluzione ottima."""
+    """The solver did not find an optimal solution."""
 
 
 @dataclass(frozen=True)
 class Plan:
-    """Piano orario di un giorno.
+    """Hourly plan for one day.
 
-    `schedule` ha una riga per ogni ora, con lo stesso indice delle serie in
-    ingresso. Le potenze [kW] sono medie sull'ora; `soc_kwh` è l'energia in
-    batteria alla fine dell'ora. `cost_eur` ed `emissions_kg` sono quelli
-    previsti dal piano, non quelli reali.
+    `schedule` has one row per hour, with the same index as the input series.
+    Powers [kW] are means over the hour; `soc_kwh` is the energy in the
+    battery at the end of the hour. `cost_eur` and `emissions_kg` are what the
+    plan expects, not what actually happens.
     """
 
     schedule: pd.DataFrame
@@ -57,20 +57,20 @@ class Plan:
 
 
 def battery_limits(config: dict[str, Any]) -> dict[str, float]:
-    """Limiti della batteria in unità fisiche (kWh e kW)."""
+    """Battery limits in physical units (kWh and kW)."""
     battery = config["battery"]
     capacity = float(battery["capacity_kwh"])
     return {
         "soc_min_kwh": battery["soc_min_frac"] * capacity,
         "soc_max_kwh": battery["soc_max_frac"] * capacity,
         "soc_initial_kwh": battery["soc_initial_frac"] * capacity,
-        # Una batteria senza capacità non può né caricare né scaricare.
+        # A battery with no capacity can neither charge nor discharge.
         "max_power_kw": float(battery["max_power_kw"]) if capacity > 0 else 0.0,
     }
 
 
 def exchange_prices(price: pd.Series, config: dict[str, Any]) -> tuple[pd.Series, pd.Series]:
-    """Prezzi di acquisto e di vendita [EUR/kWh] a partire dal prezzo day-ahead."""
+    """Buy and sell prices [EUR/kWh] derived from the day-ahead price."""
     buy = price + config["grid"]["import_surcharge_eur_kwh"]
     return buy.rename("buy_price_eur_kwh"), price.rename("sell_price_eur_kwh")
 
@@ -85,7 +85,7 @@ def build_model(
     soc_initial_kwh: float,
     carbon_weight: float,
 ) -> pyo.ConcreteModel:
-    """Costruisce il modello Pyomo di un giorno (potenze in kW, energie in kWh)."""
+    """Build the Pyomo model for one day (powers in kW, energies in kWh)."""
     battery, limits = config["battery"], battery_limits(config)
     step = float(config["time"]["step_hours"])
     grid_max = float(config["grid"]["max_power_kw"])
@@ -94,38 +94,39 @@ def build_model(
     hours = len(load)
 
     model = pyo.ConcreteModel()
+    # Pyomo sets are 1-based here, the input arrays 0-based: hence the `t - 1` below.
     model.T = pyo.RangeSet(1, hours)
     model.p_ch = pyo.Var(model.T, bounds=(0, power_max))
     model.p_dis = pyo.Var(model.T, bounds=(0, power_max))
     model.g_imp = pyo.Var(model.T, bounds=(0, grid_max))
     model.g_exp = pyo.Var(model.T, bounds=(0, grid_max))
-    # (6) Non si può tagliare più di quanto si produce.
+    # (6) Cannot curtail more than what is produced.
     model.curt = pyo.Var(model.T, bounds=lambda _, t: (0, float(pv[t - 1])))
-    # (3) Limiti dello stato di carica.
+    # (3) State-of-charge limits.
     model.soc = pyo.Var(model.T, bounds=(limits["soc_min_kwh"], limits["soc_max_kwh"]))
     model.u = pyo.Var(model.T, domain=pyo.Binary)
     model.v = pyo.Var(model.T, domain=pyo.Binary)
 
-    # (1) Bilancio di potenza.
+    # (1) Power balance.
     model.balance = pyo.Constraint(
         model.T,
         rule=lambda m, t: pv[t - 1] - m.curt[t] + m.p_dis[t] + m.g_imp[t] == load[t - 1] + m.p_ch[t] + m.g_exp[t],
     )
 
-    # (2) Dinamica dello stato di carica.
+    # (2) State-of-charge dynamics.
     def soc_dynamics(m: pyo.ConcreteModel, t: int) -> Any:
         previous = soc_initial_kwh if t == 1 else m.soc[t - 1]
         return m.soc[t] == previous + eta_charge * m.p_ch[t] * step - m.p_dis[t] * step / eta_discharge
 
     model.soc_dynamics = pyo.Constraint(model.T, rule=soc_dynamics)
 
-    # (4) Carica e scarica non simultanee.
+    # (4) No charging and discharging in the same hour.
     model.charge_only = pyo.Constraint(model.T, rule=lambda m, t: m.p_ch[t] <= power_max * m.u[t])
     model.discharge_only = pyo.Constraint(model.T, rule=lambda m, t: m.p_dis[t] <= power_max * (1 - m.u[t]))
-    # (5) Acquisto e vendita non simultanei.
+    # (5) No buying and selling in the same hour.
     model.import_only = pyo.Constraint(model.T, rule=lambda m, t: m.g_imp[t] <= grid_max * m.v[t])
     model.export_only = pyo.Constraint(model.T, rule=lambda m, t: m.g_exp[t] <= grid_max * (1 - m.v[t]))
-    # (7) Fine giornata.
+    # (7) End of day: otherwise the model would empty the battery in the last hour.
     model.end_of_day = pyo.Constraint(expr=model.soc[hours] >= soc_initial_kwh)
 
     model.cost = pyo.Expression(
@@ -139,16 +140,16 @@ def build_model(
 def _check_inputs(series: dict[str, pd.Series], limits: dict[str, float], soc_initial_kwh: float) -> None:
     lengths = {len(values) for values in series.values()}
     if len(lengths) != 1 or lengths == {0}:
-        raise ValueError("Le serie in ingresso devono avere la stessa lunghezza, non nulla.")
+        raise ValueError("The input series must have the same, non-zero length.")
     for name, values in series.items():
         if not np.isfinite(values.to_numpy(dtype=float)).all():
-            raise ValueError(f"La serie `{name}` contiene valori mancanti o non finiti.")
+            raise ValueError(f"Series `{name}` contains missing or non-finite values.")
     for name in ("load", "pv", "carbon"):
         if (series[name] < 0).any():
-            raise ValueError(f"La serie `{name}` contiene valori negativi.")
+            raise ValueError(f"Series `{name}` contains negative values.")
     if not limits["soc_min_kwh"] <= soc_initial_kwh <= limits["soc_max_kwh"]:
         raise ValueError(
-            f"Stato di carica iniziale {soc_initial_kwh} kWh fuori dai limiti "
+            f"Initial state of charge {soc_initial_kwh} kWh is outside the limits "
             f"[{limits['soc_min_kwh']}, {limits['soc_max_kwh']}]."
         )
 
@@ -162,15 +163,15 @@ def optimize_day(
     soc_initial_kwh: float | None = None,
     carbon_weight: float | None = None,
 ) -> Plan:
-    """Calcola il piano ottimo di batteria e rete per le ore indicate.
+    """Compute the optimal battery and grid plan for the given hours.
 
-    Parametri: carico e fotovoltaico previsti [kW], prezzo day-ahead
-    [EUR/kWh] e intensità di carbonio [kgCO2/kWh], con lo stesso indice
-    (23, 24 o 25 ore). `soc_initial_kwh` e `carbon_weight` (λ, EUR/kgCO2)
-    hanno come default i valori della configurazione.
+    Inputs: forecast load and PV [kW], day-ahead price [EUR/kWh] and carbon
+    intensity [kgCO2/kWh], all with the same index (23, 24 or 25 hours).
+    `soc_initial_kwh` and `carbon_weight` (λ, EUR/kgCO2) default to the
+    values in the configuration.
 
-    Solleva `ValueError` se i dati in ingresso non sono validi e
-    `OptimizationError` se il problema non ha soluzione ottima.
+    Raises `ValueError` if the inputs are invalid and `OptimizationError` if
+    the problem has no optimal solution.
     """
     config = config or load_config()
     limits = battery_limits(config)
@@ -192,14 +193,15 @@ def optimize_day(
     settings = config["optimize"]
     solver = SolverFactory(settings["solver"])
     if not solver.available():
-        raise OptimizationError(f"Solver `{settings['solver']}` non disponibile.")
+        raise OptimizationError(f"Solver `{settings['solver']}` is not available.")
+    # Load the solution ourselves, only after checking that the solve succeeded.
     solver.config.load_solutions = False
     solver.config.rel_gap = settings["rel_gap"]
     solver.config.time_limit = settings["time_limit_s"]
     results = solver.solve(model, raise_exception_on_nonoptimal_result=False)
     if results.solution_status != SolutionStatus.optimal:
         raise OptimizationError(
-            f"Nessuna soluzione ottima: {results.termination_condition.name} (giorno che inizia a {load.index[0]})."
+            f"No optimal solution: {results.termination_condition.name} (day starting at {load.index[0]})."
         )
     results.solution_loader.load_vars()
 
@@ -208,6 +210,7 @@ def optimize_day(
     )
     for column, variable in SCHEDULE_VARIABLES.items():
         values = np.array([pyo.value(getattr(model, variable)[t]) for t in model.T])
+        # Wipe solver noise such as 1e-12, which would otherwise look like a tiny flow.
         schedule[column] = np.where(np.abs(values) < ZERO_TOLERANCE, 0.0, values)
     schedule["buy_price_eur_kwh"] = buy_price.to_numpy(dtype=float)
     schedule["sell_price_eur_kwh"] = sell_price.to_numpy(dtype=float)
@@ -222,8 +225,8 @@ def optimize_day(
 
 
 def main() -> None:
-    """Risolve il giorno di esempio e ne salva il grafico (comando `python -m microgrid.optimize`)."""
-    # Import locali: servono solo per l'esempio, non per l'ottimizzatore.
+    """Solve the example day and save its chart (`python -m microgrid.optimize`)."""
+    # Local imports: only the example needs them, not the optimiser.
     from microgrid.dataset import load_dataset, local_days
     from microgrid.forecast import load_forecasts
     from microgrid.plotting import apply_style, plot_plan
@@ -233,7 +236,7 @@ def main() -> None:
     dataset, forecasts = load_dataset(config), load_forecasts(config)
     hours = forecasts.index[local_days(forecasts.index, config) == day]
     if hours.empty:
-        raise SystemExit(f"Nessuna previsione per il giorno {day.date()}.")
+        raise SystemExit(f"No forecast available for {day.date()}.")
     plan = optimize_day(
         forecasts.loc[hours, "load_forecast"],
         forecasts.loc[hours, "pv_forecast"],
@@ -242,12 +245,12 @@ def main() -> None:
         config,
     )
     apply_style()
-    figure = plot_plan(plan, config, title=f"Piano del {day.date()} (su carico e fotovoltaico previsti)")
+    figure = plot_plan(plan, config, title=f"Plan for {day.date()} (on forecast load and PV)")
     results_dir = resolve_path(config["paths"]["results"])
     results_dir.mkdir(parents=True, exist_ok=True)
     figure.savefig(results_dir / EXAMPLE_FILE, dpi=150, bbox_inches="tight")
     print(plan.schedule.round(2).to_string())
-    print(f"costo previsto {plan.cost_eur:.2f} EUR, emissioni previste {plan.emissions_kg:.1f} kgCO2")
+    print(f"planned cost {plan.cost_eur:.2f} EUR, planned emissions {plan.emissions_kg:.1f} kgCO2")
 
 
 if __name__ == "__main__":

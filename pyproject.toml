@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "microgrid"
 version = "0.1.0"
-description = "Gestione energetica di una microgrid: previsione ML + ottimizzazione MILP"
+description = "Microgrid energy management: ML forecasting + MILP optimisation"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -38,5 +38,5 @@ src = ["src"]
 extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
-# Errori, import ordinati, sintassi moderna, errori comuni.
+# Errors, sorted imports, modern syntax, common bugs.
 select = ["E", "F", "W", "I", "UP", "B"]

@@ -2,46 +2,46 @@
 
 [![CI](https://github.com/irreprensibile22/MicroGrid/actions/workflows/ci.yml/badge.svg)](https://github.com/irreprensibile22/MicroGrid/actions/workflows/ci.yml)
 
-Gestione energetica di una microgrid con approccio *predict-then-optimize*: un modello di machine learning prevede carico e produzione fotovoltaica del giorno dopo, un modello MILP decide ora per ora come usare batteria e rete per minimizzare costo ed emissioni.
+Energy management of a microgrid with a *predict-then-optimise* approach: a machine-learning model forecasts next-day load and PV output, and a MILP model decides hour by hour how to use the battery and the grid to minimise cost and emissions.
 
-## Risultato principale
+## Main result
 
-**Domanda: quanto si risparmia, in costo e in CO₂, gestendo la batteria con previsione + ottimizzazione rispetto a una regola semplice?**
+**Question: how much do we save, in cost and CO₂, by running the battery with forecasting + optimisation rather than with a simple rule?**
 
-**Risposta: con la tariffa di riferimento, niente.** Su 125 giorni di dati reali la batteria gestita con previsione + ottimizzazione riduce il costo del 20% e le emissioni del 22% rispetto a non avere la batteria. Ma una regola che carica quando c'è sole in più e scarica quando manca fa meglio: −23% di costo, −25% di emissioni.
+**Answer: with the reference tariff, nothing.** Over 125 days of real data, the battery run with forecasting + optimisation cuts cost by 20% and emissions by 22% compared with having no battery. But a rule that charges when there is spare sun and discharges when there is not does better: −23% cost, −25% emissions.
 
-![Costo totale per strategia](results/comparison.png)
+![Total cost by strategy](results/comparison.png)
 
-- **−20,2% di costo** con previsione + MILP + correzione in tempo reale; **−22,7%** con la regola ingenua; **−24,2%** conoscendo il futuro.
-- **Eseguire il piano alla lettera costa caro**: solo −8,5%. Far assorbire l'errore di previsione alla batteria invece che alla rete vale 711 €, tre quarti di ciò che darebbe una previsione perfetta.
-- **Decide la tariffa.** Con oneri sull'acquisto fino a 0,10 €/kWh l'ottimizzazione è davanti o alla pari; con oneri nulli è l'unica strategia che guadagna. Da 0,20 €/kWh in su vince la regola ingenua.
+- **−20.2% cost** with forecast + MILP + real-time correction; **−22.7%** with the naive rule; **−24.2%** knowing the future.
+- **Executing the plan to the letter is expensive**: only −8.5%. Letting the battery absorb the forecast error instead of the grid is worth €711, three quarters of what a perfect forecast would give.
+- **The tariff decides.** With an import surcharge up to 0.10 €/kWh, optimisation is ahead or level; with no surcharge it is the only strategy that makes money. From 0.20 €/kWh up, the naive rule wins.
 
-L'analisi completa è in [notebooks/03_results.ipynb](notebooks/03_results.ipynb).
+The full analysis is in [notebooks/03_results.ipynb](notebooks/03_results.ipynb).
 
-## Schema
+## Pipeline
 
 ```mermaid
 flowchart LR
-    A["Dati<br/>carico, fotovoltaico, meteo,<br/>prezzi, intensità di carbonio"] --> B["Pulizia<br/>dataset orario unico"]
-    B --> C["Previsione<br/>LightGBM, giorno D+1"]
-    C --> D["Ottimizzazione<br/>MILP, piano di 24 ore"]
-    D --> E["Simulazione<br/>piano eseguito sui dati reali"]
-    E --> F["Confronto<br/>5 strategie, Pareto, sensitività"]
-    E -- "stato di carica reale" --> D
+    A["Data<br/>load, PV, weather,<br/>prices, carbon intensity"] --> B["Cleaning<br/>single hourly dataset"]
+    B --> C["Forecast<br/>LightGBM, day D+1"]
+    C --> D["Optimisation<br/>MILP, 24-hour plan"]
+    D --> E["Simulation<br/>plan executed on actual data"]
+    E --> F["Comparison<br/>5 strategies, Pareto, sensitivity"]
+    E -- "actual state of charge" --> D
 ```
 
-| Passo | Modulo | Comando |
+| Step | Module | Command |
 |---|---|---|
 | Download | [data.py](src/microgrid/data.py) | `python -m microgrid.data` |
-| Pulizia | [dataset.py](src/microgrid/dataset.py) | `python -m microgrid.dataset` |
-| Previsione | [features.py](src/microgrid/features.py), [forecast.py](src/microgrid/forecast.py) | `python -m microgrid.forecast` |
-| Ottimizzazione | [optimize.py](src/microgrid/optimize.py) | `python -m microgrid.optimize` |
-| Simulazione | [simulate.py](src/microgrid/simulate.py) | `python -m microgrid.simulate` |
-| Confronto | [evaluate.py](src/microgrid/evaluate.py) | `python -m microgrid.evaluate` |
+| Cleaning | [dataset.py](src/microgrid/dataset.py) | `python -m microgrid.dataset` |
+| Forecast | [features.py](src/microgrid/features.py), [forecast.py](src/microgrid/forecast.py) | `python -m microgrid.forecast` |
+| Optimisation | [optimize.py](src/microgrid/optimize.py) | `python -m microgrid.optimize` |
+| Simulation | [simulate.py](src/microgrid/simulate.py) | `python -m microgrid.simulate` |
+| Comparison | [evaluate.py](src/microgrid/evaluate.py) | `python -m microgrid.evaluate` |
 
-## Come eseguire
+## How to run
 
-Serve Python 3.12. Dalla cartella del repository:
+Python 3.12 is required. From the repository folder:
 
 ```
 python -m venv .venv
@@ -50,190 +50,190 @@ pip install -r requirements-lock.txt && pip install -e . --no-deps
 python scripts/run_all.py
 ```
 
-`run_all.py` esegue l'intero pipeline in circa 10 minuti: scarica i dati, li pulisce, addestra i modelli, simula, confronta le strategie e riesegue i notebook. I dati non sono nel repository: vengono scaricati dalle fonti.
+`run_all.py` runs the whole pipeline in about 10 minutes: it downloads the data, cleans it, trains the models, simulates, compares the strategies and re-runs the notebooks. The data is not in the repository: it is downloaded from the sources.
 
-- **Test.** `pytest` esegue 90 test, senza bisogno dei dati.
-- **Parametri.** Sono tutti in [config/default.yaml](config/default.yaml).
-- **Riproducibilità.** Il seme casuale è fissato e LightGBM è usato in modalità deterministica. `requirements-lock.txt` contiene le versioni esatte usate per i risultati; per le più recenti: `pip install -e ".[dev]"`.
-- **Controlli automatici.** A ogni push GitHub Actions esegue `ruff` (lint e formattazione) e i test.
+- **Tests.** `pytest` runs 90 tests and needs no data.
+- **Parameters.** They are all in [config/default.yaml](config/default.yaml).
+- **Reproducibility.** The random seed is fixed and LightGBM runs in deterministic mode. `requirements-lock.txt` holds the exact versions used for the results; for the latest ones: `pip install -e ".[dev]"`.
+- **Automated checks.** On every push GitHub Actions runs `ruff` (lint and formatting) and the tests.
 
-## Problema
+## Problem
 
-Due abitazioni di Costanza (Germania), gestite come un'unica microgrid connessa alla rete elettrica, con un impianto fotovoltaico e una batteria condivisa. Il gestore decide ogni giorno il piano di carica e scarica per il giorno successivo. Carico e produzione fotovoltaica non sono controllabili: si possono solo prevedere.
+Two households in Konstanz (Germany), run as a single grid-connected microgrid with a PV plant and a shared battery. Every day the operator decides the charge and discharge plan for the following day. Load and PV output cannot be controlled: they can only be forecast.
 
-| Parametro | Simbolo | Valore |
+| Parameter | Symbol | Value |
 |---|---|---|
-| Potenza di picco del fotovoltaico | — | 100 kWp |
-| Capacità della batteria | `E_max` | 200 kWh |
-| Potenza massima di carica/scarica | `P_max` | 50 kW |
-| Rendimenti di carica e scarica | `η_c`, `η_d` | 0,95 |
-| Stato di carica minimo e massimo | `SOC_min`, `SOC_max` | 10% e 90% (20 e 180 kWh) |
-| Potenza massima scambiabile con la rete | `G_max` | 100 kW |
-| Oneri sull'energia acquistata | `τ` | 0,20 €/kWh (assunto) |
-| Peso delle emissioni | `λ` | 0 €/kgCO₂ di default |
+| PV peak power | — | 100 kWp |
+| Battery capacity | `E_max` | 200 kWh |
+| Maximum charge/discharge power | `P_max` | 50 kW |
+| Charge and discharge efficiencies | `η_c`, `η_d` | 0.95 |
+| Minimum and maximum state of charge | `SOC_min`, `SOC_max` | 10% and 90% (20 and 180 kWh) |
+| Maximum power exchanged with the grid | `G_max` | 100 kW |
+| Surcharge on imported energy | `τ` | 0.20 €/kWh (assumed) |
+| Emission weight | `λ` | 0 €/kgCO₂ by default |
 
-- **Risoluzione e orizzonte.** Passo di 1 ora; si pianificano le 24 ore del giorno D+1.
-- **Tariffa.** Si acquista al prezzo day-ahead più `τ` e si vende al prezzo day-ahead.
-- **Obiettivo.** Minimizzare il costo netto dell'energia scambiata con la rete più le emissioni dell'energia acquistata, pesate da `λ`.
+- **Resolution and horizon.** 1-hour step; the 24 hours of day D+1 are planned.
+- **Tariff.** We buy at the day-ahead price plus `τ` and sell at the day-ahead price.
+- **Objective.** Minimise the net cost of the energy exchanged with the grid plus the emissions of the imported energy, weighted by `λ`.
 
-## Dati
+## Data
 
-Cinque serie orarie sul periodo **1 novembre 2015 – 3 febbraio 2018** (826 giorni, 19 824 ore), tutte riferite a Costanza o alla Germania.
+Five hourly series over **1 November 2015 – 3 February 2018** (826 days, 19,824 hours), all for Konstanz or Germany.
 
-| Serie | Fonte | Contenuto | Licenza |
+| Series | Source | Content | Licence |
 |---|---|---|---|
-| Carico | [Open Power System Data, *Household Data*](https://data.open-power-system-data.org/household_data/2020-04-15/) (versione 2020-04-15, progetto CoSSMic) | Letture di contatore di utenze di Costanza | CC BY 4.0 |
-| Fotovoltaico | [PVGIS 5.3](https://re.jrc.ec.europa.eu/pvg_tools/en/) (Commissione Europea, JRC), radiazione SARAH-3 | Produzione simulata per 1 kWp a Costanza, moduli a sud inclinati di 35°, perdite 14% | Riuso libero con citazione della fonte |
-| Meteo | [Open-Meteo](https://open-meteo.com/), archivio storico | Temperatura, irraggiamento, nuvolosità a Costanza | CC BY 4.0 |
-| Prezzo | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), dati Bundesnetzagentur / SMARD.de | Prezzo day-ahead della zona DE-AT-LU | CC BY 4.0 |
-| Intensità di carbonio | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), produzione elettrica tedesca per fonte ogni 15 minuti | Calcolata dal mix di produzione | CC BY 4.0 |
+| Load | [Open Power System Data, *Household Data*](https://data.open-power-system-data.org/household_data/2020-04-15/) (version 2020-04-15, CoSSMic project) | Meter readings of households in Konstanz | CC BY 4.0 |
+| PV | [PVGIS 5.3](https://re.jrc.ec.europa.eu/pvg_tools/en/) (European Commission, JRC), SARAH-3 radiation | Simulated output for 1 kWp in Konstanz, south-facing modules tilted 35°, 14% losses | Free reuse with attribution |
+| Weather | [Open-Meteo](https://open-meteo.com/), historical archive | Temperature, irradiance, cloud cover in Konstanz | CC BY 4.0 |
+| Price | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), Bundesnetzagentur / SMARD.de data | Day-ahead price of the DE-AT-LU zone | CC BY 4.0 |
+| Carbon intensity | [Energy-Charts](https://energy-charts.info/) (Fraunhofer ISE), German generation by source every 15 minutes | Computed from the generation mix | CC BY 4.0 |
 
-L'esplorazione del dataset è in [notebooks/01_exploration.ipynb](notebooks/01_exploration.ipynb).
+The dataset is explored in [notebooks/01_exploration.ipynb](notebooks/01_exploration.ipynb).
 
-### Pulizia
+### Cleaning
 
-- **Indice unico.** Tutte le serie sono su un indice orario in UTC, riferito all'inizio dell'ora. I giorni sono quelli dell'ora locale di Costanza: i giorni del cambio dell'ora hanno 23 o 25 ore.
-- **Giorni non validi.** Nel dataset del carico molte letture di contatore sono state interpolate dal fornitore. Un'interpolazione ripartisce in parti uguali l'energia delle ore coinvolte: il totale è corretto, l'andamento orario no. I buchi fino a 6 ore sono accettati; i giorni che contengono buchi più lunghi sono marcati come non validi (50 su 826, tutti nei dati di addestramento).
-- **Valori anomali.** Un consumo negativo è trattato come valore mancante. La produzione fotovoltaica con irraggiamento nullo è portata a zero.
-- **Divisione.** In ordine temporale e per giorni interi: addestramento fino al 31 maggio 2017 (70%), validazione dal 1° giugno al 1° ottobre 2017 (15%), test dal 2 ottobre 2017 al 3 febbraio 2018 (15%).
+- **Single index.** All series are on an hourly UTC index, referring to the start of the hour. Days are those of local time in Konstanz: the days of the clock change have 23 or 25 hours.
+- **Invalid days.** In the load dataset many meter readings were interpolated by the provider. An interpolation spreads the energy of the hours involved evenly: the total is right, the hourly shape is not. Gaps up to 6 hours are accepted; days containing longer gaps are flagged as invalid (50 out of 826, all in the training data).
+- **Anomalous values.** Negative consumption is treated as missing. PV output with zero irradiance is set to zero.
+- **Split.** Chronological and by whole days: training up to 31 May 2017 (70%), validation from 1 June to 1 October 2017 (15%), test from 2 October 2017 to 3 February 2018 (15%).
 
-### Scelte sui dati
+### Choices about the data
 
-- **Utenze.** Il carico è la somma di due abitazioni (`residential4` e `residential5`), le sole con misure complete e poco interpolate per più di due anni. Con più abitazioni il profilo sarebbe più regolare, ma il periodo utile scenderebbe a 15 mesi e i giorni da escludere salirebbero a oltre il 20%.
-- **Consumo dietro il contatore.** Per `residential4`, che ha il fotovoltaico a valle del contatore, il consumo è ricostruito come prelievo + produzione − immissione.
-- **Riscalatura del carico.** Il carico aggregato reale ha media di 1,1 kW e picco di 6,3 kW. Viene moltiplicato per 7,95 per portare il picco a 50 kW, coerente con un impianto da 100 kWp. La forma del profilo è reale, la scala no: equivale a studiare le due abitazioni con un impianto otto volte più piccolo.
-- **Fotovoltaico simulato.** La produzione non è misurata ma simulata da PVGIS a partire dalla radiazione satellitare delle stesse ore. Il valore di ogni ora è quello dell'istante osservato dal satellite, circa 10 minuti dopo l'inizio dell'ora.
-- **Zona di mercato.** Nel periodo la Germania era nella zona DE-AT-LU, divisa in DE-LU e AT dal 1° ottobre 2018.
-- **Intensità di carbonio.** È la media dei fattori di emissione sul ciclo di vita (IPCC AR5, Annex III) pesata sulla produzione nazionale di ogni fonte. I fattori sono in `config/default.yaml`.
+- **Households.** The load is the sum of two households (`residential4` and `residential5`), the only ones with complete and lightly interpolated measurements for more than two years. With more households the profile would be smoother, but the usable period would shrink to 15 months and the days to exclude would rise above 20%.
+- **Consumption behind the meter.** For `residential4`, which has PV behind the meter, consumption is rebuilt as import + production − export.
+- **Load rescaling.** The real aggregate load has a mean of 1.1 kW and a peak of 6.3 kW. It is multiplied by 7.95 to bring the peak to 50 kW, in line with a 100 kWp plant. The shape of the profile is real, the scale is not: it is equivalent to studying the two households with a plant eight times smaller.
+- **Simulated PV.** Output is not measured but simulated by PVGIS from the satellite radiation of the same hours. The value of each hour is that of the instant seen by the satellite, about 10 minutes after the start of the hour.
+- **Bidding zone.** During the period Germany was in the DE-AT-LU zone, split into DE-LU and AT on 1 October 2018.
+- **Carbon intensity.** It is the mean of the life-cycle emission factors (IPCC AR5, Annex III) weighted by the national generation of each source. The factors are in `config/default.yaml`.
 
-## Metodo
+## Method
 
-### Previsione
+### Forecast
 
-Alla mezzanotte fra il giorno D e il giorno D+1 si prevedono carico e fotovoltaico di ogni ora di D+1, con un modello LightGBM per ciascuna grandezza.
+At midnight between day D and day D+1, load and PV are forecast for each hour of D+1, with one LightGBM model per quantity.
 
-- **Feature.** Calendario (ora, giorno della settimana, festività del Baden-Württemberg, stagione, con codifica seno/coseno), meteo del giorno D+1, valori di 24, 48 e 168 ore prima, media del giorno precedente e dei 7 giorni precedenti.
-- **Nessuna informazione futura.** Le feature usano solo misure fino alla fine del giorno D; i giorni non validi non vengono usati. Un test verifica che modificare i dati del giorno D+1 non cambi le sue feature.
-- **Iperparametri.** Scelti con cross-validation a 4 finestre espandibili sui soli dati di addestramento.
-- **Riaddestramento.** Durante validazione e test il modello è riaddestrato ogni 7 giorni con tutte le misure disponibili fino a quel momento.
-- **Confronto.** Previsione ingenua: stessa ora di 7 giorni prima per il carico, stessa ora del giorno prima per il fotovoltaico.
+- **Features.** Calendar (hour, day of week, Baden-Württemberg holidays, season, with sine/cosine encoding), weather of day D+1, values 24, 48 and 168 hours earlier, mean of the previous day and of the previous 7 days.
+- **No future information.** Features only use measurements up to the end of day D; invalid days are not used. A test checks that changing the data of day D+1 does not change its features.
+- **Hyperparameters.** Chosen with a 4-fold expanding-window cross-validation on the training data only.
+- **Refitting.** During validation and test the model is refitted every 7 days on all measurements available up to then.
+- **Baseline.** Naive forecast: same hour 7 days earlier for load, same hour of the previous day for PV.
 
-Risultati sul test set (3001 ore), in kW:
+Results on the test set (3,001 hours), in kW:
 
-| Grandezza | Previsione | MAE | RMSE | MAE normalizzato |
+| Quantity | Forecast | MAE | RMSE | Normalised MAE |
 |---|---|---|---|---|
-| Carico | ingenua | 3,34 | 5,63 | 0,275 |
-| Carico | LightGBM statico | 3,84 | 5,72 | 0,316 |
-| Carico | LightGBM riaddestrato ogni 7 giorni | 3,46 | 5,05 | 0,285 |
-| Fotovoltaico | ingenua | 5,79 | 14,09 | 0,804 |
-| Fotovoltaico | LightGBM statico | 3,57 | 8,25 | 0,496 |
-| Fotovoltaico | LightGBM riaddestrato ogni 7 giorni | 3,53 | 8,16 | 0,490 |
+| Load | naive | 3.34 | 5.63 | 0.275 |
+| Load | LightGBM static | 3.84 | 5.72 | 0.316 |
+| Load | LightGBM refit every 7 days | 3.46 | 5.05 | 0.285 |
+| PV | naive | 5.79 | 14.09 | 0.804 |
+| PV | LightGBM static | 3.57 | 8.25 | 0.496 |
+| PV | LightGBM refit every 7 days | 3.53 | 8.16 | 0.490 |
 
-Sul fotovoltaico il modello riduce il MAE del 39%. Sul carico, nel test set, **non batte la previsione ingenua** sull'errore medio (+4%), pur commettendo meno errori grandi (RMSE −10%); in validazione la batteva del 25%. La causa è un cambio di abitudini in una delle due abitazioni nell'inverno 2017–18, che rende il carico molto regolare da una settimana all'altra. L'analisi è in [notebooks/02_forecasting.ipynb](notebooks/02_forecasting.ipynb).
+On PV the model cuts MAE by 39%. On load, in the test set, it **does not beat the naive forecast** on mean error (+4%), although it makes fewer large errors (RMSE −10%); in validation it beat it by 25%. The cause is a change of habits in one of the two households in winter 2017–18, which makes the load very regular from one week to the next. The analysis is in [notebooks/02_forecasting.ipynb](notebooks/02_forecasting.ipynb).
 
-### Ottimizzazione
+### Optimisation
 
-Per ogni giorno un modello MILP sceglie, ora per ora, carica e scarica della batteria, acquisto e vendita alla rete e taglio del fotovoltaico. La formulazione completa è in [docs/formulation.md](docs/formulation.md).
+For each day a MILP model chooses, hour by hour, battery charge and discharge, grid import and export, and PV curtailment. The full formulation is in [docs/formulation.md](docs/formulation.md).
 
 ```
 min  Σ_t [ c_t · g_imp_t − s_t · g_exp_t + λ · e_t · g_imp_t ] · Δt
 ```
 
-- **Vincoli.** Bilancio di potenza, dinamica e limiti dello stato di carica, limiti di potenza di batteria e rete, taglio del fotovoltaico non superiore alla produzione.
-- **Fine giornata.** La batteria deve chiudere ogni giorno almeno al livello con cui l'ha iniziato.
-- **Variabili binarie.** Impediscono carica e scarica simultanee e acquisto e vendita simultanei. Con `τ` = 0,20 €/kWh il prezzo di acquisto è sempre positivo e non cambiano il valore ottimo; servono quando acquistare è pagato.
-- **Implementazione.** Pyomo con solver HiGHS. I test verificano bilancio di potenza, limiti dello stato di carica, assenza di operazioni simultanee, equivalenza con il caso senza batteria quando la capacità è zero, e un giorno con soluzione calcolata a mano.
+- **Constraints.** Power balance, state-of-charge dynamics and limits, battery and grid power limits, PV curtailment no larger than production.
+- **End of day.** The battery must close every day at least at the level it started with.
+- **Binary variables.** They prevent simultaneous charging and discharging, and simultaneous buying and selling. With `τ` = 0.20 €/kWh the buy price is always positive and they do not change the optimal value; they matter when we are paid to import.
+- **Implementation.** Pyomo with the HiGHS solver. The tests check the power balance, the state-of-charge limits, the absence of simultaneous operations, equivalence with the no-battery case when capacity is zero, and one day whose solution was worked out by hand.
 
-Piano del 12 settembre 2017, calcolato su carico e fotovoltaico previsti:
+Plan for 12 September 2017, computed on forecast load and PV:
 
-![Piano di un giorno](results/optimize_example.png)
+![Plan for one day](results/optimize_example.png)
 
-La batteria copre il carico notturno, si svuota vendendo nell'ora mattutina di prezzo più alto, si ricarica con il surplus solare e vende di nuovo nel picco serale, chiudendo al livello iniziale.
+The battery covers the night load, empties itself by selling in the morning hour with the highest price, recharges on the solar surplus and sells again at the evening peak, closing at its starting level.
 
-### Simulazione
+### Simulation
 
-Per ogni giorno del test set il MILP pianifica sulle previsioni, poi il piano è eseguito sui dati reali; l'energia rimasta in batteria è lo stato iniziale del giorno dopo. Il piano si può eseguire in due modi.
+For each day of the test set the MILP plans on the forecasts, then the plan is executed on the actual data; the energy left in the battery is the initial state of the next day. A plan can be executed in two ways.
 
-- **Alla lettera.** La batteria segue il programma; la differenza fra previsto e reale è assorbita dalla rete.
-- **Con correzione in tempo reale.** Si segue lo scambio con la rete previsto dal piano e si lascia che sia la batteria ad assorbire l'errore, con due limiti: carica al più il surplus reale e scarica al più il deficit reale, oltre agli scambi con la rete che il piano aveva deciso di proposito. La regola è stata scelta sul periodo di validazione, fra due alternative.
+- **To the letter.** The battery follows its schedule; the grid absorbs the difference between forecast and reality.
+- **With real-time correction.** We track the grid exchange the plan expected and let the battery absorb the error, with two caps: it charges at most the actual surplus and discharges at most the actual deficit, on top of the grid trades the plan had decided on purpose. The rule was chosen on the validation period, between two alternatives.
 
-In entrambi i casi la batteria resta nei limiti dello stato di carica, e il fotovoltaico si taglia se il prezzo di vendita è negativo o se la vendita supererebbe `G_max`.
+In both cases the battery stays within its state-of-charge limits, and PV is curtailed if the sell price is negative or the export would exceed `G_max`.
 
-### Strategie a confronto
+### Strategies compared
 
-| Strategia | Descrizione |
+| Strategy | Description |
 |---|---|
-| Nessuna batteria | Il fotovoltaico copre il carico, il resto va alla rete o viene dalla rete |
-| Regola ingenua | Carica quando c'è surplus solare, scarica quando c'è deficit |
-| Previsione + MILP | Piano calcolato sulle previsioni ed eseguito alla lettera |
-| Previsione + MILP + correzione | Stesso piano, eseguito con la correzione in tempo reale |
-| Previsione perfetta + MILP | Piano calcolato sui dati reali: riferimento teorico |
+| No battery | PV covers the load, the rest goes to or comes from the grid |
+| Naive rule | Charge when there is a solar surplus, discharge when there is a deficit |
+| Forecast + MILP | Plan computed on the forecasts and executed to the letter |
+| Forecast + MILP + correction | Same plan, executed with the real-time correction |
+| Perfect forecast + MILP | Plan computed on the actual data: theoretical reference |
 
-## Risultati
+## Results
 
-Test set, 125 giorni (2 ottobre 2017 – 3 febbraio 2018):
+Test set, 125 days (2 October 2017 – 3 February 2018):
 
-| Strategia | Costo | Emissioni | Risparmio di costo | Risparmio di emissioni | Quota del risparmio teorico |
+| Strategy | Cost | Emissions | Cost saving | Emission saving | Share of the theoretical saving |
 |---|---|---|---|---|---|
-| Nessuna batteria | 6 069 € | 10 496 kgCO₂ | — | — | — |
-| Regola ingenua | 4 691 € | 7 878 kgCO₂ | 22,7% | 24,9% | 94% |
-| Previsione + MILP | 5 554 € | 9 527 kgCO₂ | 8,5% | 9,2% | 35% |
-| Previsione + MILP + correzione | 4 842 € | 8 208 kgCO₂ | 20,2% | 21,8% | 84% |
-| Previsione perfetta + MILP | 4 602 € | 7 802 kgCO₂ | 24,2% | 25,7% | 100% |
+| No battery | €6,069 | 10,496 kgCO₂ | — | — | — |
+| Naive rule | €4,691 | 7,878 kgCO₂ | 22.7% | 24.9% | 94% |
+| Forecast + MILP | €5,554 | 9,527 kgCO₂ | 8.5% | 9.2% | 35% |
+| Forecast + MILP + correction | €4,842 | 8,208 kgCO₂ | 20.2% | 21.8% | 84% |
+| Perfect forecast + MILP | €4,602 | 7,802 kgCO₂ | 24.2% | 25.7% | 100% |
 
-- **Perché la regola ingenua vince.** Con 0,20 €/kWh di oneri un kWh autoconsumato vale circa sette volte la differenza di prezzo tipica fra le ore di un giorno. Conta quasi solo l'autoconsumo, e per massimizzarlo basta reagire al surplus reale: non serve prevederlo. Fra regola ingenua e previsione perfetta c'è meno del 2% del costo.
-- **Costo dell'errore di previsione.** Eseguendo il piano alla lettera il costo reale supera del 31% quello pianificato (5 554 € contro 4 251 €). Il costo in più dipende dall'errore sul fotovoltaico (correlazione +0,71 con il MAE del giorno), non da quello sul carico (−0,08).
-- **Valore della previsione del carico.** Sostituire il modello con la previsione ingenua del carico costa 26 € in più: per questo problema si equivalgono.
+- **Why the naive rule wins.** With a 0.20 €/kWh surcharge, a self-consumed kWh is worth about seven times the typical price difference between the hours of a day. Self-consumption is almost all that matters, and to maximise it you only need to react to the actual surplus: there is no need to forecast it. The gap between the naive rule and the perfect forecast is under 2% of the cost.
+- **Cost of the forecast error.** Executing the plan to the letter, the actual cost exceeds the planned one by 31% (€5,554 against €4,251). The extra cost depends on the PV error (correlation +0.71 with the day's MAE), not on the load error (−0.08).
+- **Value of the load forecast.** Replacing the model with the naive load forecast costs €26 more: for this problem the two are equivalent.
 
-### Sensitività
+### Sensitivity
 
-![Risparmio al variare di un parametro alla volta](results/sensitivity.png)
+![Saving when one parameter changes at a time](results/sensitivity.png)
 
-- **Oneri sull'acquisto.** È il parametro che decide chi vince. Con oneri nulli il MILP porta il costo da 496 € a 7 €, mentre la regola ingenua perde 47 € rispetto a non avere la batteria; le emissioni del MILP però raddoppiano, perché compra e rivende energia di rete. Con 0,05 €/kWh il piano con correzione risparmia 465 € contro 310 €; con 0,10 €/kWh sono alla pari; da 0,20 €/kWh vince la regola ingenua.
-- **Capacità della batteria.** Rendimenti decrescenti: da 100 a 200 kWh la regola ingenua guadagna 377 €, da 200 a 400 kWh 192 €. Il piano eseguito alla lettera resta fermo a circa 500 € con qualunque capacità.
-- **Potenza del fotovoltaico.** Più sole c'è, più la batteria rende, per tutte le strategie.
+- **Import surcharge.** This is the parameter that decides who wins. With no surcharge the MILP takes the cost from €496 down to €7, while the naive rule loses €47 compared with having no battery; the MILP's emissions, however, double, because it buys and resells grid energy. At 0.05 €/kWh the plan with correction saves €465 against €310; at 0.10 €/kWh they are level; from 0.20 €/kWh the naive rule wins.
+- **Battery capacity.** Diminishing returns: from 100 to 200 kWh the naive rule gains €377, from 200 to 400 kWh €192. The plan executed to the letter stays at about €500 whatever the capacity.
+- **PV peak power.** The more sun there is, the more the battery is worth, for every strategy.
 
-### Fronte di Pareto costo–emissioni
+### Cost–emissions Pareto front
 
-![Costo ed emissioni al variare di λ](results/pareto.png)
+![Cost and emissions as λ changes](results/pareto.png)
 
-Con previsione perfetta, pesare le emissioni fino a 5 €/kgCO₂ le riduce del 2,6% e aumenta il costo dell'1,8%. Il grosso arriva subito: a 1 €/kgCO₂ si evitano 188 kg con 43 € in più, circa 230 € per tonnellata. Le emissioni dipendono da quanta energia si acquista più che da quando.
+With a perfect forecast, weighting emissions up to 5 €/kgCO₂ cuts them by 2.6% and raises cost by 1.8%. Most of it comes early: at 1 €/kgCO₂ we avoid 188 kg for €43 more, about €230 per tonne. Emissions depend on how much energy is bought more than on when.
 
-## Limiti e semplificazioni
+## Limits and simplifications
 
-- **Test set invernale e unico.** Il confronto è su 125 giorni di autunno e inverno, la stagione con più carico e meno fotovoltaico. Non rappresenta un anno intero.
-- **Meteo reale al posto delle previsioni.** Il meteo del giorno D+1 è quello osservato: per il periodo di studio non esistono previsioni archiviate. L'errore sul fotovoltaico, e quindi il costo dell'errore di previsione, è ottimistico.
-- **Tariffa semplificata.** Oneri fissi sull'acquisto, vendita al prezzo day-ahead, nessuna tariffa sulla potenza di picco né incentivo all'immissione. Il valore di `τ` è un'ipotesi, e i risultati ne dipendono molto.
-- **Intensità di carbonio nota in anticipo.** Il MILP usa il valore reale del giorno D+1. Inoltre non considera gli scambi con l'estero e usa lo stesso fattore per lignite e carbone: le emissioni sono sottostimate.
-- **La previsione perfetta non è un limite superiore assoluto.** Il MILP pianifica un giorno alla volta e deve chiudere ogni giorno al livello di partenza. Con una batteria da 400 kWh regola ingenua e piano con correzione lo raggiungono o lo superano.
-- **Energia residua.** Regola ingenua e piano con correzione finiscono il periodo con la batteria al minimo, le altre strategie a metà: la differenza vale circa 18 € e non cambia la classifica.
-- **Scala del carico.** Il profilo è reale, la scala no (fattore 7,95).
-- **Ore senza dati satellitari.** In 69 ore su 19 824 la produzione simulata è zero mentre Open-Meteo indica un irraggiamento superiore a 50 W/m²; in 57 di queste PVGIS riporta irraggiamento nullo, per esempio per tutto il 16 ottobre 2016. Sono con ogni probabilità ore in cui manca il dato del satellite. Non vengono corrette; solo 2 cadono nel test set.
-- **Scelte fatte conoscendo il test.** Il riaddestramento settimanale dei modelli è stato introdotto dopo aver visto il risultato del modello statico sul test. Non usa dati futuri e gli iperparametri non sono cambiati.
-- **Emissione a mezzanotte.** Un vero mercato del giorno prima richiede la previsione entro mezzogiorno del giorno D, con mezza giornata di misure in meno.
-- **Batteria ideale.** Rendimenti costanti, nessuna autoscarica, nessun costo di degradazione.
+- **A single, winter test set.** The comparison covers 125 days of autumn and winter, the season with the most load and the least PV. It does not represent a whole year.
+- **Observed weather instead of forecasts.** The weather of day D+1 is the observed one: no archived forecasts exist for the study period. The PV error, and so the cost of the forecast error, is optimistic.
+- **Simplified tariff.** Fixed surcharge on imports, sale at the day-ahead price, no peak-power charge and no feed-in incentive. The value of `τ` is an assumption, and the results depend on it heavily.
+- **Carbon intensity known in advance.** The MILP uses the actual value of day D+1. It also ignores cross-border flows and uses the same factor for lignite and hard coal: emissions are underestimated.
+- **The perfect forecast is not an absolute upper bound.** The MILP plans one day at a time and must close every day at its starting level. With a 400 kWh battery, the naive rule and the plan with correction match or beat it.
+- **Leftover energy.** The naive rule and the plan with correction end the period with the battery at its minimum, the other strategies half full: the difference is worth about €18 and does not change the ranking.
+- **Load scale.** The profile is real, the scale is not (factor 7.95).
+- **Hours without satellite data.** In 69 hours out of 19,824 the simulated output is zero while Open-Meteo reports irradiance above 50 W/m²; in 57 of them PVGIS reports zero irradiance, for instance for the whole of 16 October 2016. These are very likely hours with no satellite data. They are not corrected; only 2 fall in the test set.
+- **Choices made knowing the test set.** Weekly refitting of the models was introduced after seeing how the static model did on the test set. It uses no future data and the hyperparameters did not change.
+- **Midnight issue time.** A real day-ahead market needs the forecast by noon on day D, with half a day fewer measurements.
+- **Ideal battery.** Constant efficiencies, no self-discharge, no degradation cost.
 
-## Possibili sviluppi
+## Possible developments
 
-- **Ri-ottimizzazione infragiornaliera.** Ripianificare ogni ora con le misure più recenti (controllo predittivo) invece di correggere con una regola.
-- **Previsione probabilistica e ottimizzazione stocastica.** Pianificare su più scenari di fotovoltaico, la grandezza il cui errore costa.
-- **Previsioni meteo vere** al posto del meteo osservato, e un test set di un anno intero.
-- **Orizzonte più lungo.** Pianificare su 48 ore, o dare un valore all'energia residua, per togliere il vincolo di fine giornata.
-- **Tariffe diverse.** Prezzi dinamici al dettaglio, tariffa sulla potenza di picco: sono i casi in cui l'ottimizzazione ha più da guadagnare.
-- **Costo di degradazione** della batteria nell'obiettivo.
-- **Carichi spostabili**, come la ricarica di veicoli elettrici.
-- **Dashboard interattiva** per scegliere taglia della batteria e peso `λ`.
+- **Intraday re-optimisation.** Re-plan every hour with the latest measurements (model predictive control) instead of correcting with a rule.
+- **Probabilistic forecasting and stochastic optimisation.** Plan over several PV scenarios, PV being the quantity whose error costs money.
+- **Real weather forecasts** instead of observed weather, and a full-year test set.
+- **Longer horizon.** Plan over 48 hours, or put a value on leftover energy, to drop the end-of-day constraint.
+- **Other tariffs.** Dynamic retail prices, peak-power charges: the cases where optimisation has the most to gain.
+- **Degradation cost** of the battery in the objective.
+- **Shiftable loads**, such as electric-vehicle charging.
+- **Interactive dashboard** to choose the battery size and the weight `λ`.
 
-## Struttura
+## Layout
 
 ```
-config/default.yaml     parametri
-docs/formulation.md     formulazione matematica del MILP
-notebooks/              esplorazione, previsione, risultati
-results/                tabelle e grafici prodotti dal pipeline
-scripts/run_all.py      esegue tutto
-src/microgrid/          codice
-tests/                  test
+config/default.yaml     parameters
+docs/formulation.md     mathematical formulation of the MILP
+notebooks/              exploration, forecasting, results
+results/                tables and charts produced by the pipeline
+scripts/run_all.py      runs everything
+src/microgrid/          code
+tests/                  tests
 ```
 
-Il piano di lavoro seguito è in [microgrid-roadmap.md](microgrid-roadmap.md). Licenza: [MIT](LICENSE).
+The work plan that was followed is in [microgrid-roadmap.md](microgrid-roadmap.md). Licence: [MIT](LICENSE).
