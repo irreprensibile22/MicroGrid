@@ -8,7 +8,7 @@ Parameter values are in [`config/default.yaml`](../config/default.yaml); the mat
 
 | Symbol | Meaning |
 |---|---|
-| $\mathcal{T} = \{1, \dots, T\}$ | Hours of local day D+1. $T = 24$, except on the days of the clock change ($T = 23$ or $T = 25$). |
+| $\mathcal{T} = \lbrace 1, \dots, T\rbrace$ | Hours of local day D+1. $T = 24$, except on the days of the clock change ($T = 23$ or $T = 25$). |
 
 Hour $t$ is the interval of length $\Delta t = 1\ \text{h}$ (`time.step_hours`) that ends at instant $t$. Powers are means over the interval; the state of charge $soc_t$ refers to the end of the interval.
 
@@ -59,8 +59,8 @@ $SOC_0$ is `battery.soc_initial_frac` $\cdot E^{max}$ on the first day of the si
 | $g^{exp}_t$ | $\ge 0$ | kW | Power sold to the grid |
 | $curt_t$ | $\ge 0$ | kW | Curtailed PV output |
 | $soc_t$ | $\in \mathbb{R}$ | kWh | Energy in the battery at the end of hour $t$ |
-| $u_t$ | $\{0, 1\}$ | — | 1 if the battery may charge, 0 if it may discharge |
-| $v_t$ | $\{0, 1\}$ | — | 1 if we may buy, 0 if we may sell |
+| $u_t$ | $\lbrace 0, 1\rbrace$ | — | 1 if the battery may charge, 0 if it may discharge |
+| $v_t$ | $\lbrace 0, 1\rbrace$ | — | 1 if we may buy, 0 if we may sell |
 
 Charge and discharge powers are measured on the plant side: $p^{ch}_t$ is the power the battery draws, $p^{dis}_t$ the power it gives back. Losses are in the state-of-charge dynamics.
 
@@ -69,7 +69,7 @@ With $T = 24$ the model has 144 continuous variables and 48 binaries.
 ## 4. Objective function
 
 $$
-\min \ \sum_{t \in \mathcal{T}} \Big[ \underbrace{c_t \, g^{imp}_t - s_t \, g^{exp}_t}_{\text{net cost}} + \lambda \, \underbrace{e_t \, g^{imp}_t}_{\text{emissions}} \Big] \, \Delta t
+\min \ \sum_{t \in \mathcal{T}} \Big[ \underbrace{c_t g^{imp}_t - s_t g^{exp}_t}_{\text{net cost}} + \lambda \underbrace{e_t g^{imp}_t}_{\text{emissions}} \Big] \Delta t
 $$
 
 The first term is the net cost of the energy exchanged with the grid [€]. The second is the emissions of the imported energy [kgCO₂], converted into euros by the weight $\lambda$. Exported energy earns no emission credit.
@@ -89,7 +89,7 @@ $$
 **(2) State-of-charge dynamics.**
 
 $$
-soc_t = soc_{t-1} + \eta_c \, p^{ch}_t \, \Delta t - \frac{p^{dis}_t \, \Delta t}{\eta_d}
+soc_t = soc_{t-1} + \eta_c p^{ch}_t \Delta t - \frac{p^{dis}_t \Delta t}{\eta_d}
 $$
 
 **(3) State-of-charge limits.**
@@ -101,13 +101,13 @@ $$
 **(4) No simultaneous charging and discharging.**
 
 $$
-p^{ch}_t \le P^{max} \, u_t \qquad\qquad p^{dis}_t \le P^{max} \, (1 - u_t)
+p^{ch}_t \le P^{max} u_t \qquad\qquad p^{dis}_t \le P^{max} (1 - u_t)
 $$
 
 **(5) No simultaneous buying and selling.**
 
 $$
-g^{imp}_t \le G^{max} \, v_t \qquad\qquad g^{exp}_t \le G^{max} \, (1 - v_t)
+g^{imp}_t \le G^{max} v_t \qquad\qquad g^{exp}_t \le G^{max} (1 - v_t)
 $$
 
 **(6) PV curtailment.** We cannot curtail more than is produced.
@@ -124,14 +124,14 @@ $$
 
 ## 6. Properties
 
-**The model always has a solution** if $SOC^{min} \le SOC_0 \le SOC^{max}$ and $L_t \le G^{max}$ for every $t$. Simply leave the battery idle: if $PV_t < L_t$ buy the difference, otherwise sell the surplus up to $G^{max}$ and curtail the rest. In the data the load never exceeds 50 kW and $G^{max} = 100$ kW.
+**The model always has a solution** if $SOC^{min} \le SOC_0 \le SOC^{max}$ and $L_t \le G^{max}$ for every $t$. Simply leave the battery idle: if $PV_t \lt L_t$ buy the difference, otherwise sell the surplus up to $G^{max}$ and curtail the rest. In the data the load never exceeds 50 kW and $G^{max} = 100$ kW.
 
 **The coefficients in constraints (4) and (5) are as tight as they can be.** $P^{max}$ and $G^{max}$ are already the physical limits of the variables: no arbitrary "big-M" constants are needed, and the linear relaxation is strong.
 
 **What the binary variables are for.** Without $u_t$ and $v_t$ the problem is a linear program (LP). The binaries change the solution only when wasting energy pays:
 
-- *Simultaneous charging and discharging* dissipates energy through the efficiencies. Removing $\delta$ from the charge and $\eta_c \eta_d \, \delta$ from the discharge leaves the state of charge unchanged and frees the power $(1 - \eta_c \eta_d)\,\delta > 0$, which reduces the import or increases the curtailment. If $c_t + \lambda e_t \ge 0$ the cost does not get worse: waste never pays. If instead $c_t + \lambda e_t < 0$, we are paid to import and the linear program would charge and discharge at once to consume more: constraint (4) prevents it.
-- *Simultaneous buying and selling* of a power $\delta$ costs $(c_t + \lambda e_t - s_t)\,\delta = (\tau + \lambda e_t)\,\delta \ge 0$. It never pays; with $\tau = 0$ and $\lambda = 0$ it makes no difference, and constraint (5) rules out physically meaningless solutions.
+- *Simultaneous charging and discharging* dissipates energy through the efficiencies. Removing $\delta$ from the charge and $\eta_c \eta_d \delta$ from the discharge leaves the state of charge unchanged and frees the power $(1 - \eta_c \eta_d) \delta \gt 0$, which reduces the import or increases the curtailment. If $c_t + \lambda e_t \ge 0$ the cost does not get worse: waste never pays. If instead $c_t + \lambda e_t \lt 0$, we are paid to import and the linear program would charge and discharge at once to consume more: constraint (4) prevents it.
+- *Simultaneous buying and selling* of a power $\delta$ costs $(c_t + \lambda e_t - s_t) \delta = (\tau + \lambda e_t) \delta \ge 0$. It never pays; with $\tau = 0$ and $\lambda = 0$ it makes no difference, and constraint (5) rules out physically meaningless solutions.
 
 With the default parameters ($\tau = 0.20$ €/kWh) the buy price is always positive: the lowest day-ahead price in the period is −0.13 €/kWh. So the optimal value of the MILP equals that of its linear relaxation. The binaries stay in the model because they guarantee an executable plan for any choice of $\tau$ and $\lambda$, including in the sensitivity analysis.
 
@@ -148,7 +148,7 @@ With the default parameters ($\tau = 0.20$ €/kWh) the buy price is always posi
 
 ## 8. Possible extensions
 
-- Degradation cost: a term $\gamma \, (p^{ch}_t + p^{dis}_t) \, \Delta t$ in the objective.
+- Degradation cost: a term $\gamma (p^{ch}_t + p^{dis}_t) \Delta t$ in the objective.
 - Peak-power charge: a variable $g^{peak} \ge g^{imp}_t$ with a cost in the objective.
-- Value of leftover energy instead of constraint (7): a term $-\,\omega \, soc_T$ in the objective.
+- Value of leftover energy instead of constraint (7): a term $- \omega soc_T$ in the objective.
 - 48-hour horizon, applying only the first 24 hours.

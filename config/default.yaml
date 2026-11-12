@@ -11,8 +11,7 @@ site:
   holidays_subdivision: BW # ...plus those of Baden-Württemberg
 
 time:
-  step_hours: 1        # Δt
-  horizon_hours: 24    # planning covers day D+1
+  step_hours: 1        # Δt; each plan covers the hours of local day D+1
 
 pv:
   peak_kw: 100.0

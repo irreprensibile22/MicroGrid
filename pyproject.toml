@@ -8,12 +8,12 @@ version = "0.1.0"
 description = "Microgrid energy management: ML forecasting + MILP optimisation"
 readme = "README.md"
 license = "MIT"
+authors = [{ name = "Pietro Ravera" }]
 requires-python = ">=3.12"
 dependencies = [
     "pandas",
     "numpy",
     "pyarrow",
-    "scikit-learn",
     "lightgbm",
     "holidays",
     "pyomo",
@@ -21,6 +21,9 @@ dependencies = [
     "matplotlib",
     "pyyaml",
 ]
+
+[project.urls]
+Repository = "https://github.com/irreprensibile22/MicroGrid"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "ipykernel", "nbconvert", "nbformat"]

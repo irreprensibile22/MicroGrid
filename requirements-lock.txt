@@ -20,7 +20,6 @@ ipython==9.18.1
 ipython_pygments_lexers==1.1.1
 jedi==0.20.1
 Jinja2==3.1.6
-joblib==1.6.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 jupyter_client==8.10.0
@@ -61,12 +60,10 @@ pyzmq==27.3.0
 referencing==0.37.0
 rpds-py==2026.9.1
 ruff==0.17.4
-scikit-learn==1.9.1
 scipy==1.18.1
 six==1.17.0
 soupsieve==4.1
 stack-data==0.6.3
-threadpoolctl==3.8.0
 tinycss2==1.5.1
 tornado==6.6.1
 traitlets==5.16.1

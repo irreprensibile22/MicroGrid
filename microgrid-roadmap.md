@@ -50,7 +50,7 @@ Every phase ends with something publishable: make one commit (or more) at the en
        └── formulation.md      # mathematical formulation
    ```
 
-3. Create a virtual environment and install: `pandas`, `numpy`, `scikit-learn`, `lightgbm`, `pyomo` (or `pulp`), `highspy`, `matplotlib`, `pyyaml`, `pytest`.
+3. Create a virtual environment and install: `pandas`, `numpy`, `lightgbm`, `pyomo` (or `pulp`), `highspy`, `matplotlib`, `pyyaml`, `pytest`.
 4. Add `data/` to `.gitignore`: data is re-downloaded with a script, not uploaded to the repo.
 
 **Output:** an empty but tidy repo, first commit.

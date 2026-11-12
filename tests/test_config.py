@@ -21,6 +21,6 @@ def test_battery_parameters_are_consistent():
     assert 0 <= battery["soc_min_frac"] <= battery["soc_initial_frac"] <= battery["soc_max_frac"] <= 1
 
 
-def test_time_grid_covers_whole_horizon():
-    time = load_config()["time"]
-    assert time["horizon_hours"] % time["step_hours"] == 0
+def test_time_step_is_one_hour():
+    # The hourly dataset and the 23/24/25-hour days both assume a one-hour step.
+    assert load_config()["time"]["step_hours"] == 1
