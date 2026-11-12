@@ -9,11 +9,15 @@ Simula tutte le strategie sullo stesso periodo e scrive in `results/`:
 - `comparison.csv`   costo ed emissioni totali di ogni strategia;
 - `daily_costs.csv`  costo giornaliero di ogni strategia ed errori di previsione;
 - `pareto.csv`       costo ed emissioni al variare del peso `λ`;
-- `sensitivity.csv`  risparmio al variare di batteria, fotovoltaico e oneri.
+- `sensitivity.csv`  risparmio al variare di batteria, fotovoltaico e oneri;
+- `comparison.png`, `pareto.png`, `sensitivity.png`  i grafici corrispondenti.
+
+Con `--figures-only` ridisegna i grafici dalle tabelle già salvate.
 """
 
 from __future__ import annotations
 
+import argparse
 import copy
 from typing import Any
 
@@ -29,6 +33,7 @@ COMPARISON_FILE = "comparison.csv"
 DAILY_FILE = "daily_costs.csv"
 PARETO_FILE = "pareto.csv"
 SENSITIVITY_FILE = "sensitivity.csv"
+FIGURE_FILES = {"comparison": "comparison.png", "pareto": "pareto.png", "sensitivity": "sensitivity.png"}
 
 # Nome breve -> descrizione. L'ordine è quello delle tabelle e dei grafici.
 STRATEGIES = {
@@ -198,9 +203,31 @@ def evaluation_inputs(config: dict[str, Any]) -> pd.DataFrame:
     return inputs
 
 
+def save_figures(config: dict[str, Any]) -> None:
+    """Disegna i grafici dei risultati a partire dalle tabelle salvate in `results/`."""
+    # Import locale: matplotlib serve solo qui.
+    from microgrid.plotting import apply_style, plot_comparison, plot_pareto, plot_sensitivity
+
+    results_dir = resolve_path(config["paths"]["results"])
+    apply_style()
+    figures = {
+        "comparison": plot_comparison(pd.read_csv(results_dir / COMPARISON_FILE, index_col="strategy"), STRATEGIES),
+        "pareto": plot_pareto(pd.read_csv(results_dir / PARETO_FILE), STRATEGIES),
+        "sensitivity": plot_sensitivity(pd.read_csv(results_dir / SENSITIVITY_FILE), STRATEGIES),
+    }
+    for name, figure in figures.items():
+        figure.savefig(results_dir / FIGURE_FILES[name], dpi=150, bbox_inches="tight")
+
+
 def main() -> None:
-    """Confronta le strategie e salva le tabelle (comando `python -m microgrid.evaluate`)."""
+    """Confronta le strategie e salva tabelle e grafici (comando `python -m microgrid.evaluate`)."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--figures-only", action="store_true", help="ridisegna i grafici dalle tabelle già salvate")
+    args = parser.parse_args()
     config = load_config()
+    if args.figures_only:
+        save_figures(config)
+        return
     inputs = evaluation_inputs(config)
     results_dir = resolve_path(config["paths"]["results"])
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -218,6 +245,7 @@ def main() -> None:
     sweep = sensitivity(inputs, config)
     sweep.to_csv(results_dir / SENSITIVITY_FILE, index=False, float_format="%.4f")
     print(sweep.round(2).to_string(index=False))
+    save_figures(config)
 
 
 if __name__ == "__main__":

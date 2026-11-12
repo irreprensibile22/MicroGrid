@@ -283,5 +283,5 @@ Poi:
 - [x] Fase 7 — Simulazione a orizzonte mobile
 - [x] Fase 8 — Confronti, Pareto, sensitività
 - [x] Fase 9 — CI, test, riproducibilità
-- [ ] Fase 10 — README completo
+- [x] Fase 10 — README completo
 - [ ] Fase 11 — Estensioni (facoltative)
